@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const bcrypt = require('bcrypt');
 
 const app = express();
 app.use(cors());
@@ -30,7 +31,19 @@ const propertySchema = new mongoose.Schema({
   Baths: Number,
 });
 const Property = mongoose.model('Property', propertySchema);
-
+// User Model
+const userSchema = new mongoose.Schema({
+  email: { type: String, unique: true, required: true },
+  password: { type: String, required: true }, // Hashed
+  firstName: String,
+  lastName: String,
+  phone: String,
+  address: String,
+  city: String,
+  state: String,
+  zip: String,
+});
+const User = mongoose.model('User', userSchema);
 // Seed Route (Run Once) - USES YOUR JSON FILE
 app.get('/seed', async (req, res) => {
   try {
@@ -83,7 +96,67 @@ app.get('/api/products', async (req, res) => {
     res.status(500).json({ message: 'Server error', details: err.message });
   }
 });
+// Signup
+app.post('/api/signup', async (req, res) => {
+  try {
+    const { email, password, firstName, lastName, phone, address, city, state, zip } = req.body;
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User already exists' });
+    }
+    const hashedPassword = await bcrypt.hash(password, 10); // Hash password
+    const user = new User({
+      email,
+      password: hashedPassword,
+      firstName,
+      lastName,
+      phone,
+      address,
+      city,
+      state,
+      zip,
+    });
+    await user.save();
+    res.json({ message: 'User created successfully', user: { ...user.toObject(), password: undefined } }); // Return without password
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', details: err.message });
+  }
+});
+// Login
+app.post('/api/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid password' });
+    }
+    res.json({ message: 'Login successful', user: { ...user.toObject(), password: undefined } }); // Return without password
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', details: err.message });
+  }
+});
 
+// Update User 
+app.put('/api/users', async (req, res) => {
+  try {
+    const { email, firstName, lastName, phone, address, city, state, zip } = req.body;
+    const user = await User.findOneAndUpdate(
+      { email },
+      { firstName, lastName, phone, address, city, state, zip },
+      { new: true }
+    );
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.json({ message: 'User updated successfully', user: { ...user.toObject(), password: undefined } });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', details: err.message });
+  }
+});
 // Test DB Connection
 app.get('/test-db', async (req, res) => {
   try {
