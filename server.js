@@ -31,12 +31,14 @@ const propertySchema = new mongoose.Schema({
 });
 const Property = mongoose.model('Property', propertySchema);
 
-// Seed Route (Run Once)
-// SEED ROUTE — ADD THIS IF MISSING
-// Seed Route (Run Once) - FIXED VERSION
+// Seed Route (Run Once) - USES YOUR JSON FILE
 app.get('/seed', async (req, res) => {
   try {
     const filePath = path.join(__dirname, 'data', 'real_estate_data.json');
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send('Error: real_estate_data.json not found on server');
+    }
+
     const raw = fs.readFileSync(filePath, 'utf-8');
     const data = JSON.parse(raw);
 
@@ -49,19 +51,24 @@ app.get('/seed', async (req, res) => {
       Baths: p.Baths,
     }));
 
-    // ADD data without deleting (avoids timeout)
-    await Property.insertMany(docs, { ordered: false }); // Ignores duplicates
+    await Property.insertMany(docs, { ordered: false }); // Add, ignore duplicates
 
-    res.send('Data added to MongoDB! (no duplicates)');
+    res.send(`Data added to MongoDB from JSON file! Loaded ${docs.length} properties.`);
   } catch (err) {
-    res.status(500).send('Error: ' + err.message);
+    console.error('Seed error:', err);
+    res.status(500).send('Seed Error: ' + err.message);
   }
 });
-// API: Get All Products
+
+// API: Get All Products - FROM DB (like your original, but from MongoDB)
 app.get('/api/products', async (req, res) => {
   try {
     const all = await Property.find().lean();
-    const result = all.map(p => ({
+    if (all.length === 0) {
+      return res.json({ data: [], message: 'No properties yet - run /seed' });
+    }
+
+    const transformed = all.map(p => ({
       Name: p.Name,
       PropertyTitle: p.PropertyTitle,
       Price: p.Price,
@@ -69,9 +76,21 @@ app.get('/api/products', async (req, res) => {
       TotalArea: p.TotalArea,
       Baths: p.Baths,
     }));
-    res.json({ data: result });
+
+    res.json({ data: transformed });
   } catch (err) {
-    res.status(500).json({ message: 'Server error' });
+    console.error('API error:', err);
+    res.status(500).json({ message: 'Server error', details: err.message });
+  }
+});
+
+// Test DB Connection
+app.get('/test-db', async (req, res) => {
+  try {
+    const count = await Property.countDocuments();
+    res.json({ connected: true, totalProperties: count });
+  } catch (err) {
+    res.status(500).json({ connected: false, error: err.message });
   }
 });
 
