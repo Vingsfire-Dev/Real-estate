@@ -33,6 +33,7 @@ const Property = mongoose.model('Property', propertySchema);
 
 // Seed Route (Run Once)
 // SEED ROUTE — ADD THIS IF MISSING
+// Seed Route (Run Once) - FIXED VERSION
 app.get('/seed', async (req, res) => {
   try {
     const filePath = path.join(__dirname, 'data', 'real_estate_data.json');
@@ -48,9 +49,10 @@ app.get('/seed', async (req, res) => {
       Baths: p.Baths,
     }));
 
-    await Property.deleteMany({});
-    await Property.insertMany(docs);
-    res.send('Data uploaded to MongoDB!');
+    // ADD data without deleting (avoids timeout)
+    await Property.insertMany(docs, { ordered: false }); // Ignores duplicates
+
+    res.send('Data added to MongoDB! (no duplicates)');
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
