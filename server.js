@@ -32,6 +32,7 @@ const propertySchema = new mongoose.Schema({
 const Property = mongoose.model('Property', propertySchema);
 
 // Seed Route (Run Once)
+// SEED ROUTE — ADD THIS IF MISSING
 app.get('/seed', async (req, res) => {
   try {
     const filePath = path.join(__dirname, 'data', 'real_estate_data.json');
@@ -54,7 +55,6 @@ app.get('/seed', async (req, res) => {
     res.status(500).send('Error: ' + err.message);
   }
 });
-
 // API: Get All Products
 app.get('/api/products', async (req, res) => {
   try {
