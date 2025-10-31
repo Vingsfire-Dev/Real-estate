@@ -150,17 +150,57 @@ app.post('/api/login', async (req, res) => {
 // Update User 
 app.put('/api/users', async (req, res) => {
   try {
-    const { email, firstName, lastName, phone, address, city, state, zip } = req.body;
-    const user = await User.findOneAndUpdate(
-      { email },
-      { firstName, lastName, phone, address, city, state, zip },
-      { new: true }
-    );
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+    const { 
+      email, 
+      firstName, lastName, phone, address, city, state, zip,
+      credits, lastResetMonth 
+    } = req.body;
+
+    // CASE 1: Profile update via email (original behavior)
+    if (email) {
+      const user = await User.findOneAndUpdate(
+        { email },
+        { firstName, lastName, phone, address, city, state, zip },
+        { new: true }
+      );
+
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      return res.json({ 
+        message: 'User updated successfully', 
+        user: { ...user.toObject(), password: undefined } 
+      });
     }
-    res.json({ message: 'User updated successfully', user: { ...user.toObject(), password: undefined } });
+
+    // CASE 2: Credit update via phone (NEW: Netflix-style)
+    if (phone && (credits !== undefined || lastResetMonth)) {
+      const updateFields = {};
+      if (credits !== undefined) updateFields.credits = credits;
+      if (lastResetMonth) updateFields.lastResetMonth = lastResetMonth;
+
+      const user = await User.findOneAndUpdate(
+        { phone },
+        { $set: updateFields },
+        { new: true }
+      );
+
+      if (!user) {
+        return res.status(404).json({ message: 'User not found by phone' });
+      }
+
+      return res.json({ 
+        message: 'Credits updated', 
+        user: { ...user.toObject(), password: undefined } 
+      });
+    }
+
+    // If neither email nor phone provided
+    return res.status(400).json({ message: 'Email or phone is required' });
+
   } catch (err) {
+    console.error('Update user error:', err);
     res.status(500).json({ message: 'Server error', details: err.message });
   }
 });
