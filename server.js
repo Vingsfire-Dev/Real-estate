@@ -72,7 +72,14 @@ app.get('/seed', async (req, res) => {
     res.status(500).send('Seed Error: ' + err.message);
   }
 });
-
+// NEW: Review Model 
+const reviewSchema = new mongoose.Schema({
+  brokerName: { type: String, required: true }, // e.g., "Skyline Realty"
+  rating: { type: Number, required: true, min: 1, max: 5 },
+  feedback: { type: String, default: '' },
+  createdAt: { type: Date, default: Date.now },
+});
+const Review = mongoose.model('Review', reviewSchema);
 // API: Get All Products - FROM DB (like your original, but from MongoDB)
 app.get('/api/products', async (req, res) => {
   try {
@@ -153,6 +160,31 @@ app.put('/api/users', async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
     res.json({ message: 'User updated successfully', user: { ...user.toObject(), password: undefined } });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', details: err.message });
+  }
+});
+app.post('/api/reviews', async (req, res) => {
+  try {
+    const { brokerName, rating, feedback } = req.body;
+    const review = new Review({
+      brokerName,
+      rating,
+      feedback,
+    });
+    await review.save();
+    res.json({ message: 'Review submitted successfully', review });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', details: err.message });
+  }
+});
+
+// NEW: Get Reviews for Broker (GET)
+app.get('/api/reviews/:brokerName', async (req, res) => {
+  try {
+    const { brokerName } = req.params;
+    const reviews = await Review.find({ brokerName }).sort({ createdAt: -1 }).lean();
+    res.json({ data: reviews });
   } catch (err) {
     res.status(500).json({ message: 'Server error', details: err.message });
   }
