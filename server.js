@@ -208,23 +208,22 @@ const multer = require('multer');
 // --- 1. NEW SCHEMAS FOR BROKER DATA ---
 
 // Broker Model: For data from broker_register_page.dart and other pages.
+// ──────────────────────────────────────────────────────────────
+// 1. Broker model – add unique fullName
+// ──────────────────────────────────────────────────────────────
 const brokerSchema = new mongoose.Schema({
   email: { type: String, unique: true, required: true },
-  password: { type: String, required: true }, // Hashed
-  fullName: String,
+  password: { type: String, required: true },
+  fullName: { type: String, required: true, unique: true },   // <-- NEW
   phone: String,
   license: String,
   agency: String,
-  profileImageUrl: String, // URL for profile image
-
-  // For verification flow (file_upload_page.dart -> verification_pending_page.dart)
-  verificationStatus: { 
-    type: String, 
-    enum: ['not_submitted', 'pending', 'verified', 'rejected'], 
-    default: 'not_submitted' 
+  profileImageUrl: String,
+  verificationStatus: {
+    type: String,
+    enum: ['not_submitted', 'pending', 'verified', 'rejected'],
+    default: 'not_submitted'
   },
-
-  // For subscription flow (subscription_page.dart & payment_page.dart)
   isSubscribed: { type: Boolean, default: false },
   subscriptionEndDate: Date,
 });
