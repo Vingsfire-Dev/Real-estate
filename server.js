@@ -208,3 +208,211 @@ app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`Go to http://localhost:${PORT}/seed to upload data (do this once)`);
 });
+
+const multer = require('multer');
+
+// --- 1. NEW SCHEMAS FOR BROKER DATA ---
+
+// Broker Model: For data from broker_register_page.dart and other pages.
+const brokerSchema = new mongoose.Schema({
+  email: { type: String, unique: true, required: true },
+  password: { type: String, required: true }, // Hashed
+  fullName: String,
+  phone: String,
+  license: String,
+  agency: String,
+  profileImageUrl: String, // URL for profile image
+
+  // For verification flow (file_upload_page.dart -> verification_pending_page.dart)
+  verificationStatus: { 
+    type: String, 
+    enum: ['not_submitted', 'pending', 'verified', 'rejected'], 
+    default: 'not_submitted' 
+  },
+
+  // For subscription flow (subscription_page.dart & payment_page.dart)
+  isSubscribed: { type: Boolean, default: false },
+  subscriptionEndDate: Date,
+});
+const Broker = mongoose.model('Broker', brokerSchema);
+
+// Document Model: For files from file_upload_page.dart
+const documentSchema = new mongoose.Schema({
+  brokerEmail: { type: String, required: true, index: true },
+  fileName: { type: String, required: true },
+  filePath: { type: String, required: true }, // Path to the file on the server
+  uploadedAt: { type: Date, default: Date.now },
+});
+const Document = mongoose.model('Document', documentSchema);
+
+// ProfileView Model: For tracking profile views in home.dart
+const profileViewSchema = new mongoose.Schema({
+    viewedBrokerEmail: { type: String, required: true, index: true },
+    viewerInfo: { type: String, required: true }, // Can store viewer email or general info
+    timestamp: { type: Date, default: Date.now }
+});
+const ProfileView = mongoose.model('ProfileView', profileViewSchema);
+
+
+// --- 2. FILE UPLOAD CONFIGURATION (using Multer) ---
+
+// Configure storage for verification documents
+const documentStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const dir = 'uploads/documents';
+        // Create directory if it doesn't exist
+        if (!fs.existsSync(dir)){
+            fs.mkdirSync(dir, { recursive: true });
+        }
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        // Create a unique filename to prevent conflicts
+        const brokerEmail = req.body.email || 'unknown_broker';
+        cb(null, `${brokerEmail}-${Date.now()}-${file.originalname}`);
+    }
+});
+const upload = multer({ storage: documentStorage });
+
+// To serve uploaded files statically (so they can be viewed/downloaded)
+// Example URL: http://your-server.com/uploads/documents/your-file.pdf
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+
+// --- 3. NEW API ENDPOINTS FOR BROKERS ---
+
+// Endpoint for Broker Registration (from broker_register_page.dart)
+app.post('/api/broker/register', async (req, res) => {
+  try {
+    const { email, password, fullName, phone, license, agency, profileImageUrl } = req.body;
+    const existingBroker = await Broker.findOne({ email });
+    if (existingBroker) {
+      return res.status(400).json({ message: 'Broker with this email already exists' });
+    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const broker = new Broker({
+      email,
+      password: hashedPassword,
+      fullName,
+      phone,
+      license,
+      agency,
+      profileImageUrl: profileImageUrl || '',
+    });
+    await broker.save();
+    // Return broker data without the password
+    res.status(201).json({ message: 'Broker registered successfully', broker: { ...broker.toObject(), password: undefined } });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error during registration', details: err.message });
+  }
+});
+
+// Endpoint for Broker Login (from login_checker_page.dart)
+app.post('/api/broker/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const broker = await Broker.findOne({ email });
+    if (!broker) {
+      return res.status(404).json({ message: 'Broker not found' });
+    }
+    const isMatch = await bcrypt.compare(password, broker.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+    // Return broker data without the password
+    res.json({ message: 'Login successful', broker: { ...broker.toObject(), password: undefined } });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error during login', details: err.message });
+  }
+});
+
+// Endpoint to get broker status (verification & subscription)
+app.get('/api/broker/status/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        const broker = await Broker.findOne({ email }).select('verificationStatus isSubscribed subscriptionEndDate -_id');
+        if (!broker) {
+            return res.status(404).json({ message: 'Broker not found' });
+        }
+        res.json(broker);
+    } catch (err) {
+        res.status(500).json({ message: 'Server error', details: err.message });
+    }
+});
+
+// Endpoint for uploading verification documents (from file_upload_page.dart)
+// This uses 'upload.array("documents")' to handle multiple files in a field named "documents"
+app.post('/api/broker/documents', upload.array('documents'), async (req, res) => {
+    try {
+        const { email } = req.body; // The broker's email should be sent with the files
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ message: 'No files were uploaded.' });
+        }
+
+        // Create a record for each uploaded file
+        const documents = req.files.map(file => ({
+            brokerEmail: email,
+            fileName: file.originalname,
+            filePath: file.path,
+        }));
+
+        await Document.insertMany(documents);
+
+        // After files are saved, update broker status to 'pending'
+        await Broker.findOneAndUpdate({ email }, { verificationStatus: 'pending' });
+
+        res.status(201).json({ 
+            message: 'Documents uploaded successfully. Verification is now pending.', 
+            files: documents 
+        });
+
+    } catch (err) {
+        res.status(500).json({ message: 'Server error during file upload.', details: err.message });
+    }
+});
+
+// Endpoint to update subscription status (from payment_page.dart)
+app.post('/api/broker/subscribe', async (req, res) => {
+    try {
+        const { email, plan } = req.body; // Plan could be 'standard' or 'premium'
+        
+        // For simplicity, we set the subscription to end one year from now
+        const subscriptionEndDate = new Date();
+        subscriptionEndDate.setFullYear(subscriptionEndDate.getFullYear() + 1);
+
+        const broker = await Broker.findOneAndUpdate(
+            { email },
+            { isSubscribed: true, subscriptionEndDate },
+            { new: true } // Return the updated document
+        );
+
+        if (!broker) {
+            return res.status(404).json({ message: 'Broker not found' });
+        }
+        res.json({ 
+            message: 'Subscription successful!', 
+            isSubscribed: broker.isSubscribed, 
+            subscriptionEndDate: broker.subscriptionEndDate 
+        });
+    } catch (err) {
+        res.status(500).json({ message: 'Server error', details: err.message });
+    }
+});
+
+// Endpoint to get all views for a broker's profile (for home.dart)
+app.get('/api/broker/views/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        const views = await ProfileView.find({ viewedBrokerEmail: email })
+            .sort({ timestamp: -1 }) // Sort by most recent
+            .lean(); 
+        res.json({ data: views, count: views.length });
+    } catch (err) {
+        res.status(500).json({ message: 'Server error', details: err.message });
+    }
+});
+
+
+// --------------------------------------------------------------
+// --- END: BROKER APPLICATION BACKEND ---
+// --------------------------------------------------------------
