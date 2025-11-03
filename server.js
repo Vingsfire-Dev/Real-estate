@@ -203,12 +203,6 @@ app.get('/test-db', async (req, res) => {
 app.get('/', (req, res) => {
   res.send('Real Estate API is running!');
 });
-
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`Go to http://localhost:${PORT}/seed to upload data (do this once)`);
-});
-
 const multer = require('multer');
 
 // --- 1. NEW SCHEMAS FOR BROKER DATA ---
@@ -416,3 +410,9 @@ app.get('/api/broker/views/:email', async (req, res) => {
 // --------------------------------------------------------------
 // --- END: BROKER APPLICATION BACKEND ---
 // --------------------------------------------------------------
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Go to http://localhost:${PORT}/seed to upload data (do this once)`);
+});
+
+
