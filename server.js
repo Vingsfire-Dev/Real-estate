@@ -320,6 +320,35 @@ app.post('/api/broker/login', async (req, res) => {
   }
 });
 
+// Endpoint to log a profile view (called from user app)
+app.post('/api/broker/log-view', async (req, res) => {
+  try {
+    const { viewedBrokerEmail, viewerInfo } = req.body;
+
+    if (!viewedBrokerEmail || !viewerInfo) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+
+    // Optional: Check if broker exists
+    const brokerExists = await Broker.findOne({ email: viewedBrokerEmail });
+    if (!brokerExists) {
+      return res.status(404).json({ message: 'Broker not found' });
+    }
+
+    const view = new ProfileView({
+      viewedBrokerEmail,
+      viewerInfo,
+    });
+
+    await view.save();
+
+    res.status(201).json({ message: 'View logged successfully', view });
+  } catch (err) {
+    console.error('Log view error:', err);
+    res.status(500).json({ message: 'Server error', details: err.message });
+  }
+});
+
 // Endpoint to get broker status (verification & subscription)
 app.get('/api/broker/status/:email', async (req, res) => {
     try {
