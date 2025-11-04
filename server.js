@@ -90,7 +90,8 @@ const Document = mongoose.model('Document', documentSchema);
 
 // ProfileView Model — uses fullName
 const profileViewSchema = new mongoose.Schema({
-  viewedBrokerName: { type: String, required: true, index: true }, // <-- fullName
+  viewedBrokerName: { type: String, required: true, index: true },// <-- fullName
+  viewerPhone: { type: String }, // ← phone
   viewerInfo: { type: String, required: true },
   timestamp: { type: Date, default: Date.now }
 });
