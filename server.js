@@ -289,9 +289,12 @@ app.post('/api/broker/login', async (req, res) => {
 });
 
 // Broker: Log Profile View (from user app) — uses fullName
+// Broker: Log Profile View (from user app) — uses fullName
 app.post('/api/broker/log-view', async (req, res) => {
   try {
-    const { viewedBrokerName, viewerInfo ,viewerPhone} = req.body;
+    // CORRECTLY DESTRUCTURE viewerPhone
+    const { viewedBrokerName, viewerInfo, viewerPhone } = req.body;
+
     if (!viewedBrokerName || !viewerInfo) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
@@ -301,9 +304,14 @@ app.post('/api/broker/log-view', async (req, res) => {
       return res.status(404).json({ message: 'Broker not found' });
     }
 
-    const view = new ProfileView({ viewedBrokerName, viewerInfo,viewerPhone viewerPhone || '' // ← Save it safely });
-    await view.save();
+    // CORRECT SYNTAX: Pass viewerPhone safely
+    const view = new ProfileView({
+      viewedBrokerName,
+      viewerInfo,
+      viewerPhone: viewerPhone || ''  // ← This was broken before
+    });
 
+    await view.save();
     res.status(201).json({ message: 'View logged', view });
   } catch (err) {
     console.error('Log view error:', err);
