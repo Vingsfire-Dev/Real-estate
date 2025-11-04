@@ -291,7 +291,7 @@ app.post('/api/broker/login', async (req, res) => {
 // Broker: Log Profile View (from user app) — uses fullName
 app.post('/api/broker/log-view', async (req, res) => {
   try {
-    const { viewedBrokerName, viewerInfo } = req.body;
+    const { viewedBrokerName, viewerInfo ,viewerPhone} = req.body;
     if (!viewedBrokerName || !viewerInfo) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
