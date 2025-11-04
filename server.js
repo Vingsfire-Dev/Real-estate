@@ -301,7 +301,7 @@ app.post('/api/broker/log-view', async (req, res) => {
       return res.status(404).json({ message: 'Broker not found' });
     }
 
-    const view = new ProfileView({ viewedBrokerName, viewerInfo,viewerPhone });
+    const view = new ProfileView({ viewedBrokerName, viewerInfo,viewerPhone viewerPhone || '' // ← Save it safely });
     await view.save();
 
     res.status(201).json({ message: 'View logged', view });
