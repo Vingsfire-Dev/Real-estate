@@ -11,7 +11,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 8000; // Render will override this with its own PORT (e.g., 10000)
 const MONGO_URI = process.env.MONGO_URI;
 
 // Connect to MongoDB
@@ -358,14 +358,6 @@ app.post('/api/broker/subscribe', async (req, res) => {
 
 // START SERVER
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`Go to http://localhost:${PORT}/seed to seed data`);
-});
-// =============================
-// 6. START SERVER
-// =============================
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`Go to http://localhost:${PORT}/seed to upload data (once)`);
+  console.log(`Server running on port ${PORT}`); // Render sets PORT dynamically
 });
 
