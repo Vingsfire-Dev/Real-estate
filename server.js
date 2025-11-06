@@ -245,6 +245,20 @@ app.get('/api/reviews/all', async (req, res) => {
     res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
+// Add this route **anywhere after your models and before app.listen**
+app.get('/debug/reviews', async (req, res) => {
+  try {
+    const raw = await Review.find({}).lean();
+    const mongooseDocs = await Review.find({});
+    res.json({
+      rawMongoDocs: raw,
+      mongooseTransformed: mongooseDocs,
+      note: 'Check rawMongoDocs for $numberInt/$date. mongooseTransformed should be clean.'
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.get('/test-db', async (req, res) => {
   try {
