@@ -11,6 +11,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ---------- PORT ----------
 const PORT = process.env.PORT || 8000;
 const MONGO_URI = process.env.MONGO_URI;
 
@@ -93,11 +94,9 @@ const ProfileView = mongoose.model('ProfileView', profileViewSchema);
 mongoose.set('toJSON', {
   transform: (doc, ret) => {
     ret._id = ret._id.toString();
-
     if (ret.rating && ret.rating.$numberInt) {
       ret.rating = parseInt(ret.rating.$numberInt, 10);
     }
-
     if (ret.createdAt) {
       if (ret.createdAt.$date && ret.createdAt.$date.$numberLong) {
         ret.createdAt = new Date(parseInt(ret.createdAt.$date.$numberLong, 10)).toISOString();
@@ -208,7 +207,7 @@ app.put('/api/users', async (req, res) => {
   }
 });
 
-// ---------- REVIEW ENDPOINTS (NO .lean()) ----------
+// ---------- REVIEW ENDPOINTS ----------
 app.post('/api/reviews', async (req, res) => {
   try {
     const { brokerName, rating, feedback } = req.body;
@@ -245,7 +244,7 @@ app.get('/api/reviews/all', async (req, res) => {
   }
 });
 
-// ---------- DEBUG ENDPOINT ----------
+// ---------- DEBUG ----------
 app.get('/debug/reviews', async (req, res) => {
   try {
     const raw = await Review.find({}).lean();
@@ -253,7 +252,7 @@ app.get('/debug/reviews', async (req, res) => {
     res.json({
       rawMongoDocs: raw,
       mongooseTransformed: mongooseDocs,
-      note: 'mongooseTransformed should be clean (no $numberInt/$date).'
+      note: 'mongooseTransformed should be clean.'
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -370,46 +369,12 @@ app.post('/api/broker/subscribe', async (req, res) => {
   }
 });
 
-// ---------- START ----------
-app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
-});
-app.post('/api/broker/documents', upload.array('documents'), async (req, res) => {
-  try {
-    const { email } = req.body;
-    if (!req.files?.length) return res.status(400).json({ message: 'No files' });
-    const docs = req.files.map(f => ({
-      brokerEmail: email,
-      fileName: f.originalname,
-      filePath: f.path,
-    }));
-    await Document.insertMany(docs);
-    await Broker.findOneAndUpdate({ email }, { verificationStatus: 'pending' });
-    res.status(201).json({ message: 'Docs uploaded – pending verification', files: docs });
-  } catch (e) {
-    res.status(500).json({ message: 'Server error', details: e.message });
+// ---------- START SERVER (ONE TIME ONLY) ----------
+app.listen(PORT, '0.0.0.0', (err) => {
+  if (err) {
+    console.error('Failed to start server:', err);
+    process.exit(1);
   }
-});
-
-app.post('/api/broker/subscribe', async (req, res) => {
-  try {
-    const { email } = req.body;
-    const end = new Date(); end.setFullYear(end.getFullYear() + 1);
-    const broker = await Broker.findOneAndUpdate(
-      { email },
-      { isSubscribed: true, subscriptionEndDate: end },
-      { new: true }
-    );
-    if (!broker) return res.status(404).json({ message: 'Broker not found' });
-    res.json({ message: 'Subscribed', isSubscribed: true, subscriptionEndDate: end });
-  } catch (e) {
-    res.status(500).json({ message: 'Server error', details: e.message });
-  }
-});
-
-// ---------- START ----------
-
-app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running at http://0.0.0.0:${PORT}`);
   console.log(`API: https://real-estate-mx87.onrender.com/api/reviews/all`);
 });
