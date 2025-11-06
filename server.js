@@ -105,7 +105,6 @@ mongoose.set('toJSON', {
         ret.createdAt = ret.createdAt.toISOString();
       }
     }
-
     return ret;
   },
 });
@@ -209,7 +208,7 @@ app.put('/api/users', async (req, res) => {
   }
 });
 
-// ---------- REVIEW ENDPOINTS (SIMPLE & CLEAN) ----------
+// ---------- REVIEW ENDPOINTS (NO .lean()) ----------
 app.post('/api/reviews', async (req, res) => {
   try {
     const { brokerName, rating, feedback } = req.body;
@@ -230,7 +229,8 @@ app.get('/api/reviews/:brokerName', async (req, res) => {
     console.log(`GET /api/reviews/${brokerName} → ${reviews.length} reviews`);
     res.json({ data: reviews });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error('GET /api/reviews/:brokerName error:', e);
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
@@ -240,10 +240,12 @@ app.get('/api/reviews/all', async (req, res) => {
     console.log(`GET /api/reviews/all → ${reviews.length} reviews`);
     res.json({ data: reviews });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error('GET /api/reviews/all error:', e);
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
-// Add this route **anywhere after your models and before app.listen**
+
+// ---------- DEBUG ENDPOINT ----------
 app.get('/debug/reviews', async (req, res) => {
   try {
     const raw = await Review.find({}).lean();
@@ -251,7 +253,7 @@ app.get('/debug/reviews', async (req, res) => {
     res.json({
       rawMongoDocs: raw,
       mongooseTransformed: mongooseDocs,
-      note: 'Check rawMongoDocs for $numberInt/$date. mongooseTransformed should be clean.'
+      note: 'mongooseTransformed should be clean (no $numberInt/$date).'
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -335,6 +337,43 @@ app.get('/api/broker/status/:email', async (req, res) => {
   }
 });
 
+app.post('/api/broker/documents', upload.array('documents'), async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!req.files?.length) return res.status(400).json({ message: 'No files' });
+    const docs = req.files.map(f => ({
+      brokerEmail: email,
+      fileName: f.originalname,
+      filePath: f.path,
+    }));
+    await Document.insertMany(docs);
+    await Broker.findOneAndUpdate({ email }, { verificationStatus: 'pending' });
+    res.status(201).json({ message: 'Docs uploaded – pending verification', files: docs });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
+  }
+});
+
+app.post('/api/broker/subscribe', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const end = new Date(); end.setFullYear(end.getFullYear() + 1);
+    const broker = await Broker.findOneAndUpdate(
+      { email },
+      { isSubscribed: true, subscriptionEndDate: end },
+      { new: true }
+    );
+    if (!broker) return res.status(404).json({ message: 'Broker not found' });
+    res.json({ message: 'Subscribed', isSubscribed: true, subscriptionEndDate: end });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
+  }
+});
+
+// ---------- START ----------
+app.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});
 app.post('/api/broker/documents', upload.array('documents'), async (req, res) => {
   try {
     const { email } = req.body;
