@@ -227,22 +227,20 @@ app.get('/api/reviews/:brokerName', async (req, res) => {
   try {
     const { brokerName } = req.params;
     const reviews = await Review.find({ brokerName }).sort({ createdAt: -1 });
-    console.log(`GET /api/reviews/${brokerName} → ${reviews.length} docs`);
+    console.log(`GET /api/reviews/${brokerName} → ${reviews.length} reviews`);
     res.json({ data: reviews });
   } catch (e) {
-    console.error('GET broker reviews error:', e);
-    res.status(500).json({ message: 'Server error', details: e.message });
+    res.status(500).json({ error: e.message });
   }
 });
 
 app.get('/api/reviews/all', async (req, res) => {
   try {
     const reviews = await Review.find({}).sort({ createdAt: -1 });
-    console.log(`GET /api/reviews/all → ${reviews.length} docs`);
+    console.log(`GET /api/reviews/all → ${reviews.length} reviews`);
     res.json({ data: reviews });
   } catch (e) {
-    console.error('GET all reviews error:', e);
-    res.status(500).json({ message: 'Server error', details: e.message });
+    res.status(500).json({ error: e.message });
   }
 });
 // Add this route **anywhere after your models and before app.listen**
