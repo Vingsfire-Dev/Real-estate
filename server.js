@@ -380,6 +380,15 @@ app.post('/api/broker/subscribe', async (req, res) => {
     res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
+app.get('/debug/dbinfo', async (req, res) => {
+  const collections = await mongoose.connection.db.listCollections().toArray();
+  res.json({
+    dbName: mongoose.connection.name,
+    host: mongoose.connection.host,
+    collections: collections.map(c => c.name),
+  });
+});
+
 
 /* -------------------------- START SERVER -------------------------- */
 app.listen(PORT, '0.0.0.0', err => {
