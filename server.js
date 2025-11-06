@@ -11,21 +11,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || 8000; // Render will override this with its own PORT (e.g., 10000)
+const PORT = process.env.PORT || 8000;
 const MONGO_URI = process.env.MONGO_URI;
 
-// Connect to MongoDB
+// ---------- CONNECT ----------
 mongoose
   .connect(MONGO_URI)
-  .then(() => console.log('Connected to MongoDB'))
-  .catch((err) => {
-    console.log('MongoDB Error:', err);
+  .then(() => console.log('MongoDB connected'))
+  .catch(err => {
+    console.error('MongoDB error:', err);
     process.exit(1);
   });
 
-// =============================
-// MODELS
-// =============================
+// ---------- MODELS ----------
 const propertySchema = new mongoose.Schema({
   Name: String,
   PropertyTitle: String,
@@ -91,33 +89,28 @@ const profileViewSchema = new mongoose.Schema({
 });
 const ProfileView = mongoose.model('ProfileView', profileViewSchema);
 
-// =============================
-// MONGOOSE JSON TRANSFORM
-// =============================
+// ---------- GLOBAL JSON TRANSFORM ----------
 mongoose.set('toJSON', {
   transform: (doc, ret) => {
-    // Convert _id to string
     ret._id = ret._id.toString();
 
-    // Convert rating if it's extended JSON
     if (ret.rating && ret.rating.$numberInt) {
       ret.rating = parseInt(ret.rating.$numberInt, 10);
     }
 
-    // Convert createdAt if it's extended JSON
-    if (ret.createdAt && ret.createdAt.$date && ret.createdAt.$date.$numberLong) {
-      ret.createdAt = new Date(parseInt(ret.createdAt.$date.$numberLong, 10)).toISOString();
-    } else if (ret.createdAt) {
-      ret.createdAt = ret.createdAt.toISOString();
+    if (ret.createdAt) {
+      if (ret.createdAt.$date && ret.createdAt.$date.$numberLong) {
+        ret.createdAt = new Date(parseInt(ret.createdAt.$date.$numberLong, 10)).toISOString();
+      } else {
+        ret.createdAt = ret.createdAt.toISOString();
+      }
     }
 
     return ret;
   },
 });
 
-// =============================
-// FILE UPLOAD
-// =============================
+// ---------- FILE UPLOAD ----------
 const documentStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const dir = 'uploads/documents';
@@ -130,20 +123,16 @@ const documentStorage = multer.diskStorage({
   },
 });
 const upload = multer({ storage: documentStorage });
-app.use('/uploads', express.static(path.join(__dirname, 'Uploads')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// =============================
-// ROUTES
-// =============================
+// ---------- ROUTES ----------
 app.get('/seed', async (req, res) => {
   try {
     const filePath = path.join(__dirname, 'data', 'real_estate_data.json');
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).send('Error: real_estate_data.json not found');
-    }
+    if (!fs.existsSync(filePath)) return res.status(404).send('real_estate_data.json missing');
     const raw = fs.readFileSync(filePath, 'utf-8');
     const data = JSON.parse(raw);
-    const docs = data.map((p) => ({
+    const docs = data.map(p => ({
       Name: p.Name,
       PropertyTitle: p['Property Title'],
       Price: p.Price,
@@ -152,19 +141,17 @@ app.get('/seed', async (req, res) => {
       Baths: p.Baths,
     }));
     await Property.insertMany(docs, { ordered: false });
-    res.send(`Loaded ${docs.length} properties.`);
-  } catch (err) {
-    res.status(500).send('Seed Error: ' + err.message);
+    res.send(`Seeded ${docs.length} properties`);
+  } catch (e) {
+    res.status(500).send('Seed error: ' + e.message);
   }
 });
 
 app.get('/api/products', async (req, res) => {
   try {
     const all = await Property.find();
-    if (all.length === 0) {
-      return res.json({ data: [], message: 'No properties yet - run /seed' });
-    }
-    const transformed = all.map((p) => ({
+    if (!all.length) return res.json({ data: [], message: 'Run /seed' });
+    const out = all.map(p => ({
       Name: p.Name,
       PropertyTitle: p.PropertyTitle,
       Price: p.Price,
@@ -172,23 +159,23 @@ app.get('/api/products', async (req, res) => {
       TotalArea: p.TotalArea,
       Baths: p.Baths,
     }));
-    res.json({ data: transformed });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', details: err.message });
+    res.json({ data: out });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
 app.post('/api/signup', async (req, res) => {
   try {
     const { email, password, firstName, lastName, phone, address, city, state, zip } = req.body;
-    const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(400).json({ message: 'User already exists' });
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new User({ email, password: hashedPassword, firstName, lastName, phone, address, city, state, zip });
+    if (await User.findOne({ email })) return res.status(400).json({ message: 'User exists' });
+    const hash = await bcrypt.hash(password, 10);
+    const user = new User({ email, password: hash, firstName, lastName, phone, address, city, state, zip });
     await user.save();
-    res.json({ message: 'User created', user: { ...user.toObject(), password: undefined } });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', details: err.message });
+    const safe = user.toObject(); delete safe.password;
+    res.json({ message: 'User created', user: safe });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
@@ -197,11 +184,12 @@ app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ message: 'User not found' });
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ message: 'Invalid password' });
-    res.json({ message: 'Login successful', user: { ...user.toObject(), password: undefined } });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', details: err.message });
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) return res.status(401).json({ message: 'Invalid password' });
+    const safe = user.toObject(); delete safe.password;
+    res.json({ message: 'Login OK', user: safe });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
@@ -214,21 +202,24 @@ app.put('/api/users', async (req, res) => {
       { new: true }
     );
     if (!user) return res.status(404).json({ message: 'User not found' });
-    res.json({ message: 'User updated', user: { ...user.toObject(), password: undefined } });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', details: err.message });
+    const safe = user.toObject(); delete safe.password;
+    res.json({ message: 'User updated', user: safe });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
-// REVIEW ENDPOINTS - SIMPLIFIED
+// ---------- REVIEW ENDPOINTS (SIMPLE & CLEAN) ----------
 app.post('/api/reviews', async (req, res) => {
   try {
     const { brokerName, rating, feedback } = req.body;
     const review = new Review({ brokerName, rating, feedback });
     await review.save();
+    console.log('NEW REVIEW saved:', review.toObject());
     res.json({ message: 'Review submitted', review });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', details: err.message });
+  } catch (e) {
+    console.error('POST /api/reviews error:', e);
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
@@ -236,44 +227,49 @@ app.get('/api/reviews/:brokerName', async (req, res) => {
   try {
     const { brokerName } = req.params;
     const reviews = await Review.find({ brokerName }).sort({ createdAt: -1 });
+    console.log(`GET /api/reviews/${brokerName} → ${reviews.length} docs`);
     res.json({ data: reviews });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', details: err.message });
+  } catch (e) {
+    console.error('GET broker reviews error:', e);
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
 app.get('/api/reviews/all', async (req, res) => {
   try {
     const reviews = await Review.find({}).sort({ createdAt: -1 });
+    console.log(`GET /api/reviews/all → ${reviews.length} docs`);
     res.json({ data: reviews });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', details: err.message });
+  } catch (e) {
+    console.error('GET all reviews error:', e);
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
 app.get('/test-db', async (req, res) => {
   try {
-    const count = await Property.countDocuments();
-    res.json({ connected: true, totalProperties: count });
-  } catch (err) {
-    res.status(500).json({ connected: false, error: err.message });
+    const cnt = await Property.countDocuments();
+    res.json({ connected: true, totalProperties: cnt });
+  } catch (e) {
+    res.status(500).json({ connected: false, error: e.message });
   }
 });
 
-app.get('/', (req, res) => res.send('Real Estate API is running!'));
+app.get('/', (req, res) => res.send('Real Estate API running'));
 
-// BROKER ENDPOINTS
+// ---------- BROKER ENDPOINTS ----------
 app.post('/api/broker/register', async (req, res) => {
   try {
     const { email, password, fullName, phone, license, agency, profileImageUrl } = req.body;
-    const existing = await Broker.findOne({ $or: [{ email }, { fullName }] });
-    if (existing) return res.status(400).json({ message: 'Email or Full Name already exists' });
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const broker = new Broker({ email, password: hashedPassword, fullName, phone, license, agency, profileImageUrl: profileImageUrl || '' });
+    const exists = await Broker.findOne({ $or: [{ email }, { fullName }] });
+    if (exists) return res.status(400).json({ message: 'Email/FullName taken' });
+    const hash = await bcrypt.hash(password, 10);
+    const broker = new Broker({ email, password: hash, fullName, phone, license, agency, profileImageUrl: profileImageUrl || '' });
     await broker.save();
-    res.status(201).json({ message: 'Broker registered', broker: { ...broker.toObject(), password: undefined } });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', details: err.message });
+    const safe = broker.toObject(); delete safe.password;
+    res.status(201).json({ message: 'Broker registered', broker: safe });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
@@ -282,25 +278,27 @@ app.post('/api/broker/login', async (req, res) => {
     const { email, password } = req.body;
     const broker = await Broker.findOne({ email });
     if (!broker) return res.status(404).json({ message: 'Broker not found' });
-    const isMatch = await bcrypt.compare(password, broker.password);
-    if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
-    res.json({ message: 'Login successful', broker: { ...broker.toObject(), password: undefined } });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', details: err.message });
+    const ok = await bcrypt.compare(password, broker.password);
+    if (!ok) return res.status(401).json({ message: 'Invalid credentials' });
+    const safe = broker.toObject(); delete safe.password;
+    res.json({ message: 'Login OK', broker: safe });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
 app.post('/api/broker/log-view', async (req, res) => {
   try {
     const { viewedBrokerName, viewerInfo, viewerPhone } = req.body;
-    if (!viewedBrokerName || !viewerInfo) return res.status(400).json({ message: 'Missing required fields' });
-    const brokerExists = await Broker.findOne({ fullName: viewedBrokerName });
-    if (!brokerExists) return res.status(404).json({ message: 'Broker not found' });
+    if (!viewedBrokerName || !viewerInfo) return res.status(400).json({ message: 'Missing fields' });
+    const broker = await Broker.findOne({ fullName: viewedBrokerName });
+    if (!broker) return res.status(404).json({ message: 'Broker not found' });
     const view = new ProfileView({ viewedBrokerName, viewerInfo, viewerPhone: viewerPhone || '' });
     await view.save();
     res.status(201).json({ message: 'View logged', view });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', details: err.message });
+  } catch (e) {
+    console.error('log-view error:', e);
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
@@ -309,8 +307,8 @@ app.get('/api/broker/views/:fullName', async (req, res) => {
     const { fullName } = req.params;
     const views = await ProfileView.find({ viewedBrokerName: fullName }).sort({ timestamp: -1 });
     res.json({ data: views, count: views.length });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', details: err.message });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
@@ -320,46 +318,45 @@ app.get('/api/broker/status/:email', async (req, res) => {
     const broker = await Broker.findOne({ email }).select('verificationStatus isSubscribed subscriptionEndDate -_id');
     if (!broker) return res.status(404).json({ message: 'Broker not found' });
     res.json(broker);
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', details: err.message });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
 app.post('/api/broker/documents', upload.array('documents'), async (req, res) => {
   try {
     const { email } = req.body;
-    if (!req.files || req.files.length === 0) return res.status(400).json({ message: 'No files uploaded' });
-    const documents = req.files.map((file) => ({
+    if (!req.files?.length) return res.status(400).json({ message: 'No files' });
+    const docs = req.files.map(f => ({
       brokerEmail: email,
-      fileName: file.originalname,
-      filePath: file.path,
+      fileName: f.originalname,
+      filePath: f.path,
     }));
-    await Document.insertMany(documents);
+    await Document.insertMany(docs);
     await Broker.findOneAndUpdate({ email }, { verificationStatus: 'pending' });
-    res.status(201).json({ message: 'Documents uploaded. Verification pending.', files: documents });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', details: err.message });
+    res.status(201).json({ message: 'Docs uploaded – pending verification', files: docs });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
 app.post('/api/broker/subscribe', async (req, res) => {
   try {
     const { email } = req.body;
-    const endDate = new Date();
-    endDate.setFullYear(endDate.getFullYear() + 1);
+    const end = new Date(); end.setFullYear(end.getFullYear() + 1);
     const broker = await Broker.findOneAndUpdate(
       { email },
-      { isSubscribed: true, subscriptionEndDate: endDate },
+      { isSubscribed: true, subscriptionEndDate: end },
       { new: true }
     );
     if (!broker) return res.status(404).json({ message: 'Broker not found' });
-    res.json({ message: 'Subscribed!', isSubscribed: true, subscriptionEndDate: endDate });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', details: err.message });
+    res.json({ message: 'Subscribed', isSubscribed: true, subscriptionEndDate: end });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
-// START SERVER
+// ---------- START ----------
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server listening on port ${PORT}`);
 });
