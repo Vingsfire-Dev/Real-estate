@@ -233,6 +233,17 @@ app.get('/api/reviews/:brokerName', async (req, res) => {
     res.status(500).json({ message: 'Server error', details: err.message });
   }
 });
+// Review: Get ALL reviews (for Admin)
+app.get('/api/reviews/all', async (req, res) => {
+  try {
+    const reviews = await Review.find({})
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ data: reviews });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', details: err.message });
+  }
+});
 
 // Test DB
 app.get('/test-db', async (req, res) => {
