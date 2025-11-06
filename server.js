@@ -49,6 +49,7 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
+/* --------------------- REVIEW SCHEMA --------------------- */
 const reviewSchema = new mongoose.Schema({
   brokerName: { type: String, required: true },
   rating: { type: Number, required: true, min: 1, max: 5 },
@@ -57,6 +58,7 @@ const reviewSchema = new mongoose.Schema({
 });
 const Review = mongoose.model('Review', reviewSchema);
 
+/* --------------------- BROKER SCHEMA --------------------- */
 const brokerSchema = new mongoose.Schema({
   email: { type: String, unique: true, required: true },
   password: { type: String, required: true },
@@ -75,6 +77,7 @@ const brokerSchema = new mongoose.Schema({
 });
 const Broker = mongoose.model('Broker', brokerSchema);
 
+/* --------------------- DOCUMENT & VIEW SCHEMAS --------------------- */
 const documentSchema = new mongoose.Schema({
   brokerEmail: { type: String, required: true, index: true },
   fileName: { type: String, required: true },
@@ -92,16 +95,11 @@ const profileViewSchema = new mongoose.Schema({
 const ProfileView = mongoose.model('ProfileView', profileViewSchema);
 
 /* ----------------------- GLOBAL JSON TRANSFORM -------------------- */
-// Optional: keep for consistency, but we use .lean() in public APIs
 mongoose.set('toJSON', {
   transform: (doc, ret) => {
     ret._id = ret._id.toString();
-    if (ret.rating && ret.rating.$numberInt) {
-      ret.rating = parseInt(ret.rating.$numberInt, 10);
-    }
-    if (ret.createdAt) {
-      ret.createdAt = new Date(ret.createdAt).toISOString();
-    }
+    if (ret.rating && ret.rating.$numberInt) ret.rating = parseInt(ret.rating.$numberInt, 10);
+    if (ret.createdAt) ret.createdAt = new Date(ret.createdAt).toISOString();
     delete ret.__v;
     return ret;
   },
@@ -154,6 +152,7 @@ app.get('/api/products', async (req, res) => {
   }
 });
 
+/* -------------------------- USER ENDPOINTS ---------------------- */
 app.post('/api/signup', async (req, res) => {
   try {
     const { email, password, firstName, lastName, phone, address, city, state, zip } = req.body;
@@ -204,10 +203,7 @@ app.post('/api/reviews', async (req, res) => {
     console.log('RAW BODY RECEIVED:', req.body);
     const { brokerName, rating, feedback } = req.body;
     if (!brokerName || rating === undefined) {
-      return res.status(400).json({
-        message: 'Missing required fields',
-        received: req.body,
-      });
+      return res.status(400).json({ message: 'Missing required fields', received: req.body });
     }
     const review = new Review({ brokerName, rating, feedback });
     await review.save();
@@ -219,6 +215,7 @@ app.post('/api/reviews', async (req, res) => {
   }
 });
 
+/* GET reviews for a **specific broker** only */
 app.get('/api/reviews/:brokerName', async (req, res) => {
   try {
     const { brokerName } = req.params;
@@ -241,56 +238,6 @@ app.get('/api/reviews/:brokerName', async (req, res) => {
     res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
-
-app.get('/api/reviews/all', async (req, res) => {
-  try {
-    const reviews = await Review.find({})
-      .lean()
-      .sort({ createdAt: -1 });
-
-    const cleaned = reviews.map(r => ({
-      _id: r._id.toString(),
-      brokerName: r.brokerName,
-      rating: Number(r.rating),
-      feedback: r.feedback,
-      createdAt: new Date(r.createdAt).toISOString(),
-    }));
-
-    console.log(`GET /api/reviews/all → ${reviews.length} reviews`);
-    res.json({ data: cleaned });
-  } catch (e) {
-    console.error('GET /api/reviews/all error:', e);
-    res.status(500).json({ message: 'Server error', details: e.message });
-  }
-});
-
-/* ----------------------------- DEBUG (DEV ONLY) ------------------- */
-if (process.env.NODE_ENV !== 'production') {
-  app.get('/debug/reviews', async (req, res) => {
-    try {
-      const raw = await Review.find({}).lean();
-      const mongooseDocs = await Review.find({});
-      res.json({
-        rawMongoDocs: raw,
-        mongooseTransformed: mongooseDocs.map(d => d.toJSON()),
-        note: 'mongooseTransformed should be clean.',
-      });
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-}
-
-app.get('/test-db', async (req, res) => {
-  try {
-    const cnt = await Property.countDocuments();
-    res.json({ connected: true, totalProperties: cnt });
-  } catch (e) {
-    res.status(500).json({ connected: false, error: e.message });
-  }
-});
-
-app.get('/', (req, res) => res.send('Real Estate API running'));
 
 /* -------------------------- BROKER ENDPOINTS ---------------------- */
 app.post('/api/broker/register', async (req, res) => {
@@ -343,7 +290,14 @@ app.get('/api/broker/views/:fullName', async (req, res) => {
     const views = await ProfileView.find({ viewedBrokerName: fullName })
       .lean()
       .sort({ timestamp: -1 });
-    res.json({ data: views.map(v => ({ ...v, _id: v._id.toString(), timestamp: new Date(v.timestamp).toISOString() })), count: views.length });
+    res.json({
+      data: views.map(v => ({
+        ...v,
+        _id: v._id.toString(),
+        timestamp: new Date(v.timestamp).toISOString(),
+      })),
+      count: views.length,
+    });
   } catch (e) {
     res.status(500).json({ message: 'Server error', details: e.message });
   }
@@ -352,7 +306,9 @@ app.get('/api/broker/views/:fullName', async (req, res) => {
 app.get('/api/broker/status/:email', async (req, res) => {
   try {
     const { email } = req.params;
-    const broker = await Broker.findOne({ email }).select('verificationStatus isSubscribed subscriptionEndDate -_id').lean();
+    const broker = await Broker.findOne({ email })
+      .select('verificationStatus isSubscribed subscriptionEndDate -_id')
+      .lean();
     if (!broker) return res.status(404).json({ message: 'Broker not found' });
     res.json(broker);
   } catch (e) {
@@ -393,14 +349,17 @@ app.post('/api/broker/subscribe', async (req, res) => {
   }
 });
 
-app.get('/debug/dbinfo', async (req, res) => {
-  const collections = await mongoose.connection.db.listCollections().toArray();
-  res.json({
-    dbName: mongoose.connection.name,
-    host: mongoose.connection.host,
-    collections: collections.map(c => c.name),
-  });
+/* -------------------------- TEST ENDPOINT -------------------------- */
+app.get('/test-db', async (req, res) => {
+  try {
+    const cnt = await Property.countDocuments();
+    res.json({ connected: true, totalProperties: cnt });
+  } catch (e) {
+    res.status(500).json({ connected: false, error: e.message });
+  }
 });
+
+app.get('/', (req, res) => res.send('Real Estate API running'));
 
 /* -------------------------- START SERVER -------------------------- */
 app.listen(PORT, '0.0.0.0', err => {
@@ -409,5 +368,4 @@ app.listen(PORT, '0.0.0.0', err => {
     process.exit(1);
   }
   console.log(`Server running at http://0.0.0.0:${PORT}`);
-  console.log(`API: https://real-estate-mx87.onrender.com/api/reviews/all`);
 });
