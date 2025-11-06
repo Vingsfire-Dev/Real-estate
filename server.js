@@ -8,14 +8,16 @@ const bcrypt = require('bcrypt');
 const multer = require('multer');
 
 const app = express();
+
 app.use(cors());
-app.use(express.json());
-app.use(express.json({ type: 'application/json' }));
-// ---------- PORT ----------
+app.use(express.json());                 // <-- ONE JSON parser (handles application/json)
+
+/* ------------------------------------------------------------------ */
+/* --------------------------- CONFIG ------------------------------- */
 const PORT = process.env.PORT || 8000;
 const MONGO_URI = process.env.MONGO_URI;
 
-// ---------- CONNECT ----------
+/* -------------------------- CONNECT ------------------------------- */
 mongoose
   .connect(MONGO_URI)
   .then(() => console.log('MongoDB connected'))
@@ -24,7 +26,7 @@ mongoose
     process.exit(1);
   });
 
-// ---------- MODELS ----------
+/* --------------------------- MODELS ------------------------------- */
 const propertySchema = new mongoose.Schema({
   Name: String,
   PropertyTitle: String,
@@ -90,7 +92,7 @@ const profileViewSchema = new mongoose.Schema({
 });
 const ProfileView = mongoose.model('ProfileView', profileViewSchema);
 
-// ---------- GLOBAL JSON TRANSFORM ----------
+/* ----------------------- GLOBAL JSON TRANSFORM -------------------- */
 mongoose.set('toJSON', {
   transform: (doc, ret) => {
     ret._id = ret._id.toString();
@@ -108,7 +110,7 @@ mongoose.set('toJSON', {
   },
 });
 
-// ---------- FILE UPLOAD ----------
+/* --------------------------- FILE UPLOAD -------------------------- */
 const documentStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const dir = 'uploads/documents';
@@ -123,7 +125,7 @@ const documentStorage = multer.diskStorage({
 const upload = multer({ storage: documentStorage });
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// ---------- ROUTES ----------
+/* ------------------------------ ROUTES --------------------------- */
 app.get('/seed', async (req, res) => {
   try {
     const filePath = path.join(__dirname, 'data', 'real_estate_data.json');
@@ -207,10 +209,20 @@ app.put('/api/users', async (req, res) => {
   }
 });
 
-// ---------- REVIEW ENDPOINTS ----------
+/* -------------------------- REVIEW ENDPOINTS ---------------------- */
 app.post('/api/reviews', async (req, res) => {
   try {
+    console.log('RAW BODY RECEIVED:', req.body);               // <-- DEBUG
+
     const { brokerName, rating, feedback } = req.body;
+
+    if (!brokerName || rating === undefined) {
+      return res.status(400).json({
+        message: 'Missing required fields',
+        received: req.body,
+      });
+    }
+
     const review = new Review({ brokerName, rating, feedback });
     await review.save();
     console.log('NEW REVIEW saved:', review.toObject());
@@ -244,7 +256,7 @@ app.get('/api/reviews/all', async (req, res) => {
   }
 });
 
-// ---------- DEBUG ----------
+/* ----------------------------- DEBUG ------------------------------ */
 app.get('/debug/reviews', async (req, res) => {
   try {
     const raw = await Review.find({}).lean();
@@ -252,7 +264,7 @@ app.get('/debug/reviews', async (req, res) => {
     res.json({
       rawMongoDocs: raw,
       mongooseTransformed: mongooseDocs,
-      note: 'mongooseTransformed should be clean.'
+      note: 'mongooseTransformed should be clean.',
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -270,7 +282,7 @@ app.get('/test-db', async (req, res) => {
 
 app.get('/', (req, res) => res.send('Real Estate API running'));
 
-// ---------- BROKER ENDPOINTS ----------
+/* -------------------------- BROKER ENDPOINTS ---------------------- */
 app.post('/api/broker/register', async (req, res) => {
   try {
     const { email, password, fullName, phone, license, agency, profileImageUrl } = req.body;
@@ -369,8 +381,8 @@ app.post('/api/broker/subscribe', async (req, res) => {
   }
 });
 
-// ---------- START SERVER (ONE TIME ONLY) ----------
-app.listen(PORT, '0.0.0.0', (err) => {
+/* -------------------------- START SERVER -------------------------- */
+app.listen(PORT, '0.0.0.0', err => {
   if (err) {
     console.error('Failed to start server:', err);
     process.exit(1);
