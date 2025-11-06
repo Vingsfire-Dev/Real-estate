@@ -15,9 +15,10 @@ const PORT = process.env.PORT || 8000;
 const MONGO_URI = process.env.MONGO_URI;
 
 // Connect to MongoDB
-mongoose.connect(MONGO_URI)
+mongoose
+  .connect(MONGO_URI)
   .then(() => console.log('Connected to MongoDB'))
-  .catch(err => {
+  .catch((err) => {
     console.log('MongoDB Error:', err);
     process.exit(1);
   });
@@ -25,8 +26,6 @@ mongoose.connect(MONGO_URI)
 // =============================
 // 1. MODELS
 // =============================
-
-// Property Model
 const propertySchema = new mongoose.Schema({
   Name: String,
   PropertyTitle: String,
@@ -37,7 +36,6 @@ const propertySchema = new mongoose.Schema({
 });
 const Property = mongoose.model('Property', propertySchema);
 
-// User Model
 const userSchema = new mongoose.Schema({
   email: { type: String, unique: true, required: true },
   password: { type: String, required: true },
@@ -51,7 +49,6 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
-// Review Model
 const reviewSchema = new mongoose.Schema({
   brokerName: { type: String, required: true },
   rating: { type: Number, required: true, min: 1, max: 5 },
@@ -60,11 +57,10 @@ const reviewSchema = new mongoose.Schema({
 });
 const Review = mongoose.model('Review', reviewSchema);
 
-// Broker Model — fullName is unique and required
 const brokerSchema = new mongoose.Schema({
   email: { type: String, unique: true, required: true },
   password: { type: String, required: true },
-  fullName: { type: String, required: true, unique: true }, // <-- UNIQUE
+  fullName: { type: String, required: true, unique: true },
   phone: String,
   license: String,
   agency: String,
@@ -72,14 +68,13 @@ const brokerSchema = new mongoose.Schema({
   verificationStatus: {
     type: String,
     enum: ['not_submitted', 'pending', 'verified', 'rejected'],
-    default: 'not_submitted'
+    default: 'not_submitted',
   },
   isSubscribed: { type: Boolean, default: false },
   subscriptionEndDate: Date,
 });
 const Broker = mongoose.model('Broker', brokerSchema);
 
-// Document Model
 const documentSchema = new mongoose.Schema({
   brokerEmail: { type: String, required: true, index: true },
   fileName: { type: String, required: true },
@@ -88,12 +83,11 @@ const documentSchema = new mongoose.Schema({
 });
 const Document = mongoose.model('Document', documentSchema);
 
-// ProfileView Model — uses fullName
 const profileViewSchema = new mongoose.Schema({
-  viewedBrokerName: { type: String, required: true, index: true },// <-- fullName
-  viewerPhone: { type: String }, // ← phone
+  viewedBrokerName: { type: String, required: true, index: true },
+  viewerPhone: { type: String },
   viewerInfo: { type: String, required: true },
-  timestamp: { type: Date, default: Date.now }
+  timestamp: { type: Date, default: Date.now },
 });
 const ProfileView = mongoose.model('ProfileView', profileViewSchema);
 
@@ -111,16 +105,35 @@ const documentStorage = multer.diskStorage({
   filename: (req, file, cb) => {
     const brokerEmail = req.body.email || 'unknown_broker';
     cb(null, `${brokerEmail}-${Date.now()}-${file.originalname}`);
-  }
+  },
 });
 const upload = multer({ storage: documentStorage });
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // =============================
-// 3. ROUTES
+// 3. HELPER
 // =============================
+function cleanReview(review) {
+  return {
+    _id: review._id.toString(),
+    brokerName: review.brokerName,
+    rating:
+      review.rating?.$numberInt != null
+        ? parseInt(review.rating.$numberInt, 10)
+        : review.rating,
+    feedback: review.feedback || '',
+    createdAt:
+      review.createdAt?.$date?.$numberLong != null
+        ? new Date(
+            parseInt(review.createdAt.$date.$numberLong, 10)
+          ).toISOString()
+        : review.createdAt.toISOString(),
+  };
+}
 
-// Seed Route
+// =============================
+// 4. ROUTES
+// =============================
 app.get('/seed', async (req, res) => {
   try {
     const filePath = path.join(__dirname, 'data', 'real_estate_data.json');
@@ -129,7 +142,7 @@ app.get('/seed', async (req, res) => {
     }
     const raw = fs.readFileSync(filePath, 'utf-8');
     const data = JSON.parse(raw);
-    const docs = data.map(p => ({
+    const docs = data.map((p) => ({
       Name: p.Name,
       PropertyTitle: p['Property Title'],
       Price: p.Price,
@@ -145,14 +158,13 @@ app.get('/seed', async (req, res) => {
   }
 });
 
-// Get All Properties
 app.get('/api/products', async (req, res) => {
   try {
     const all = await Property.find().lean();
     if (all.length === 0) {
       return res.json({ data: [], message: 'No properties yet - run /seed' });
     }
-    const transformed = all.map(p => ({
+    const transformed = all.map((p) => ({
       Name: p.Name,
       PropertyTitle: p.PropertyTitle,
       Price: p.Price,
@@ -166,14 +178,24 @@ app.get('/api/products', async (req, res) => {
   }
 });
 
-// User: Signup
 app.post('/api/signup', async (req, res) => {
   try {
-    const { email, password, firstName, lastName, phone, address, city, state, zip } = req.body;
+    const { email, password, firstName, lastName, phone, address, city, state, zip } =
+      req.body;
     const existingUser = await User.findOne({ email });
     if (existingUser) return res.status(400).json({ message: 'User already exists' });
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new User({ email, password: hashedPassword, firstName, lastName, phone, address, city, state, zip });
+    const user = new User({
+      email,
+      password: hashedPassword,
+      firstName,
+      lastName,
+      phone,
+      address,
+      city,
+      state,
+      zip,
+    });
     await user.save();
     res.json({ message: 'User created', user: { ...user.toObject(), password: undefined } });
   } catch (err) {
@@ -181,7 +203,6 @@ app.post('/api/signup', async (req, res) => {
   }
 });
 
-// User: Login
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -195,7 +216,6 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// User: Update
 app.put('/api/users', async (req, res) => {
   try {
     const { email, firstName, lastName, phone, address, city, state, zip } = req.body;
@@ -211,41 +231,45 @@ app.put('/api/users', async (req, res) => {
   }
 });
 
-// Review: Submit
+// ---------- REVIEW ENDPOINTS (cleaned) ----------
 app.post('/api/reviews', async (req, res) => {
   try {
     const { brokerName, rating, feedback } = req.body;
     const review = new Review({ brokerName, rating, feedback });
     await review.save();
-    res.json({ message: 'Review submitted', review });
+    res.json({ message: 'Review submitted', review: cleanReview(review.toObject()) });
   } catch (err) {
     res.status(500).json({ message: 'Server error', details: err.message });
   }
 });
 
-// Review: Get for Broker
 app.get('/api/reviews/:brokerName', async (req, res) => {
   try {
     const { brokerName } = req.params;
-    const reviews = await Review.find({ brokerName }).sort({ createdAt: -1 }).lean();
-    res.json({ data: reviews });
+    const reviews = await Review.find({ brokerName })
+      .sort({ createdAt: -1 })
+      .lean();
+    const cleaned = reviews.map(cleanReview);
+    res.json({ data: cleaned });
   } catch (err) {
+    console.error('Get broker reviews error:', err);
     res.status(500).json({ message: 'Server error', details: err.message });
   }
 });
-// Review: Get ALL reviews (for Admin)
+
 app.get('/api/reviews/all', async (req, res) => {
   try {
     const reviews = await Review.find({})
       .sort({ createdAt: -1 })
       .lean();
-    res.json({ data: reviews });
+    const cleaned = reviews.map(cleanReview);
+    res.json({ data: cleaned });
   } catch (err) {
+    console.error('Get all reviews error:', err);
     res.status(500).json({ message: 'Server error', details: err.message });
   }
 });
 
-// Test DB
 app.get('/test-db', async (req, res) => {
   try {
     const count = await Property.countDocuments();
@@ -255,37 +279,38 @@ app.get('/test-db', async (req, res) => {
   }
 });
 
-// Home
 app.get('/', (req, res) => {
   res.send('Real Estate API is running!');
 });
 
 // =============================
-// 4. BROKER ENDPOINTS (USING fullName)
+// 5. BROKER ENDPOINTS
 // =============================
-
-// Broker: Register
 app.post('/api/broker/register', async (req, res) => {
   try {
-    const { email, password, fullName, phone, license, agency, profileImageUrl } = req.body;
-    const existing = await Broker.findOne({
-      $or: [{ email }, { fullName }]
-    });
+    const { email, password, fullName, phone, license, agency, profileImageUrl } =
+      req.body;
+    const existing = await Broker.findOne({ $or: [{ email }, { fullName }] });
     if (existing) return res.status(400).json({ message: 'Email or Full Name already exists' });
-
     const hashedPassword = await bcrypt.hash(password, 10);
     const broker = new Broker({
-      email, password: hashedPassword, fullName, phone, license, agency,
-      profileImageUrl: profileImageUrl || ''
+      email,
+      password: hashedPassword,
+      fullName,
+      phone,
+      license,
+      agency,
+      profileImageUrl: profileImageUrl || '',
     });
     await broker.save();
-    res.status(201).json({ message: 'Broker registered', broker: { ...broker.toObject(), password: undefined } });
+    res
+      .status(201)
+      .json({ message: 'Broker registered', broker: { ...broker.toObject(), password: undefined } });
   } catch (err) {
     res.status(500).json({ message: 'Server error', details: err.message });
   }
 });
 
-// Broker: Login
 app.post('/api/broker/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -299,29 +324,21 @@ app.post('/api/broker/login', async (req, res) => {
   }
 });
 
-// Broker: Log Profile View (from user app) — uses fullName
-// Broker: Log Profile View (from user app) — uses fullName
 app.post('/api/broker/log-view', async (req, res) => {
   try {
-    // CORRECTLY DESTRUCTURE viewerPhone
     const { viewedBrokerName, viewerInfo, viewerPhone } = req.body;
-
     if (!viewedBrokerName || !viewerInfo) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
-
     const brokerExists = await Broker.findOne({ fullName: viewedBrokerName });
     if (!brokerExists) {
       return res.status(404).json({ message: 'Broker not found' });
     }
-
-    // CORRECT SYNTAX: Pass viewerPhone safely
     const view = new ProfileView({
       viewedBrokerName,
       viewerInfo,
-      viewerPhone: viewerPhone || ''  // ← This was broken before
+      viewerPhone: viewerPhone || '',
     });
-
     await view.save();
     res.status(201).json({ message: 'View logged', view });
   } catch (err) {
@@ -330,7 +347,6 @@ app.post('/api/broker/log-view', async (req, res) => {
   }
 });
 
-// Broker: Get Views (for broker app) — uses fullName
 app.get('/api/broker/views/:fullName', async (req, res) => {
   try {
     const { fullName } = req.params;
@@ -343,11 +359,12 @@ app.get('/api/broker/views/:fullName', async (req, res) => {
   }
 });
 
-// Broker: Status
 app.get('/api/broker/status/:email', async (req, res) => {
   try {
     const { email } = req.params;
-    const broker = await Broker.findOne({ email }).select('verificationStatus isSubscribed subscriptionEndDate -_id');
+    const broker = await Broker.findOne({ email }).select(
+      'verificationStatus isSubscribed subscriptionEndDate -_id'
+    );
     if (!broker) return res.status(404).json({ message: 'Broker not found' });
     res.json(broker);
   } catch (err) {
@@ -355,27 +372,27 @@ app.get('/api/broker/status/:email', async (req, res) => {
   }
 });
 
-// Broker: Upload Documents
 app.post('/api/broker/documents', upload.array('documents'), async (req, res) => {
   try {
     const { email } = req.body;
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: 'No files uploaded' });
     }
-    const documents = req.files.map(file => ({
+    const documents = req.files.map((file) => ({
       brokerEmail: email,
       fileName: file.originalname,
       filePath: file.path,
     }));
     await Document.insertMany(documents);
     await Broker.findOneAndUpdate({ email }, { verificationStatus: 'pending' });
-    res.status(201).json({ message: 'Documents uploaded. Verification pending.', files: documents });
+    res
+      .status(201)
+      .json({ message: 'Documents uploaded. Verification pending.', files: documents });
   } catch (err) {
     res.status(500).json({ message: 'Server error', details: err.message });
   }
 });
 
-// Broker: Subscribe
 app.post('/api/broker/subscribe', async (req, res) => {
   try {
     const { email, plan } = req.body;
@@ -394,7 +411,7 @@ app.post('/api/broker/subscribe', async (req, res) => {
 });
 
 // =============================
-// 5. START SERVER
+// 6. START SERVER
 // =============================
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
