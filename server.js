@@ -11,7 +11,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || 8000; // Render will override this with its own PORT (e.g., 10000)
+const PORT = process.env.PORT || 8000;
 const MONGO_URI = process.env.MONGO_URI;
 
 // Connect to MongoDB
@@ -22,6 +22,34 @@ mongoose
     console.log('MongoDB Error:', err);
     process.exit(1);
   });
+
+// =============================
+// GLOBAL: Clean MongoDB extended JSON automatically
+// =============================
+mongoose.set('toJSON', {
+  transform: (doc, ret) => {
+    ret._id = ret._id.toString();
+
+    // Fix rating: { $numberInt: "4" } → 4
+    if (ret.rating && ret.rating.$numberInt) {
+      ret.rating = parseInt(ret.rating.$numberInt, 10);
+    }
+
+    // Fix createdAt: { $date: { $numberLong: "..." } } → ISO string
+    if (ret.createdAt) {
+      if (ret.createdAt.$date && ret.createdAt.$date.$numberLong) {
+        ret.createdAt = new Date(parseInt(ret.createdAt.$date.$numberLong, 10)).toISOString();
+      } else {
+        ret.createdAt = ret.createdAt.toISOString();
+      }
+    }
+
+    // Remove __v (optional)
+    delete ret.__v;
+
+    return ret;
+  }
+});
 
 // =============================
 // MODELS
@@ -107,25 +135,6 @@ const documentStorage = multer.diskStorage({
 });
 const upload = multer({ storage: documentStorage });
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// =============================
-// CLEAN REVIEW HELPER
-// =============================
-function cleanReview(review) {
-  return {
-    _id: review._id.toString(),
-    brokerName: review.brokerName,
-    rating:
-      review.rating?.$numberInt != null
-        ? parseInt(review.rating.$numberInt, 10)
-        : review.rating,
-    feedback: review.feedback || '',
-    createdAt:
-      review.createdAt?.$date?.$numberLong != null
-        ? new Date(parseInt(review.createdAt.$date.$numberLong, 10)).toISOString()
-        : review.createdAt.toISOString(),
-  };
-}
 
 // =============================
 // ROUTES
@@ -215,13 +224,13 @@ app.put('/api/users', async (req, res) => {
   }
 });
 
-// REVIEW ENDPOINTS - CLEANED
+// REVIEW ENDPOINTS - NOW AUTO-CLEANED
 app.post('/api/reviews', async (req, res) => {
   try {
     const { brokerName, rating, feedback } = req.body;
     const review = new Review({ brokerName, rating, feedback });
     await review.save();
-    res.json({ message: 'Review submitted', review: cleanReview(review.toObject()) });
+    res.json({ message: 'Review submitted', review });
   } catch (err) {
     res.status(500).json({ message: 'Server error', details: err.message });
   }
@@ -230,9 +239,8 @@ app.post('/api/reviews', async (req, res) => {
 app.get('/api/reviews/:brokerName', async (req, res) => {
   try {
     const { brokerName } = req.params;
-    const reviews = await Review.find({ brokerName }).sort({ createdAt: -1 }).lean();
-    const cleaned = reviews.map(cleanReview);
-    res.json({ data: cleaned });
+    const reviews = await Review.find({ brokerName }).sort({ createdAt: -1 });
+    res.json({ data: reviews });
   } catch (err) {
     res.status(500).json({ message: 'Server error', details: err.message });
   }
@@ -240,9 +248,8 @@ app.get('/api/reviews/:brokerName', async (req, res) => {
 
 app.get('/api/reviews/all', async (req, res) => {
   try {
-    const reviews = await Review.find({}).sort({ createdAt: -1 }).lean();
-    const cleaned = reviews.map(cleanReview);
-    res.json({ data: cleaned });
+    const reviews = await Review.find({}).sort({ createdAt: -1 });
+    res.json({ data: reviews });
   } catch (err) {
     res.status(500).json({ message: 'Server error', details: err.message });
   }
@@ -304,7 +311,7 @@ app.post('/api/broker/log-view', async (req, res) => {
 app.get('/api/broker/views/:fullName', async (req, res) => {
   try {
     const { fullName } = req.params;
-    const views = await ProfileView.find({ viewedBrokerName: fullName }).sort({ timestamp: -1 }).lean();
+    const views = await ProfileView.find({ viewedBrokerName: fullName }).sort({ timestamp: -1 });
     res.json({ data: views, count: views.length });
   } catch (err) {
     res.status(500).json({ message: 'Server error', details: err.message });
@@ -358,6 +365,6 @@ app.post('/api/broker/subscribe', async (req, res) => {
 
 // START SERVER
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`); // Render sets PORT dynamically
+  console.log(`Server running on port ${PORT}`);
 });
 
