@@ -11,7 +11,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 8000; // Render will override this with its own PORT (e.g., 10000)
 const MONGO_URI = process.env.MONGO_URI;
 
 // Connect to MongoDB
@@ -22,34 +22,6 @@ mongoose
     console.log('MongoDB Error:', err);
     process.exit(1);
   });
-
-// =============================
-// GLOBAL: Clean MongoDB extended JSON automatically
-// =============================
-mongoose.set('toJSON', {
-  transform: (doc, ret) => {
-    ret._id = ret._id.toString();
-
-    // Fix rating: { $numberInt: "4" } → 4
-    if (ret.rating && ret.rating.$numberInt) {
-      ret.rating = parseInt(ret.rating.$numberInt, 10);
-    }
-
-    // Fix createdAt: { $date: { $numberLong: "..." } } → ISO string
-    if (ret.createdAt) {
-      if (ret.createdAt.$date && ret.createdAt.$date.$numberLong) {
-        ret.createdAt = new Date(parseInt(ret.createdAt.$date.$numberLong, 10)).toISOString();
-      } else {
-        ret.createdAt = ret.createdAt.toISOString();
-      }
-    }
-
-    // Remove __v (optional)
-    delete ret.__v;
-
-    return ret;
-  }
-});
 
 // =============================
 // MODELS
@@ -120,6 +92,30 @@ const profileViewSchema = new mongoose.Schema({
 const ProfileView = mongoose.model('ProfileView', profileViewSchema);
 
 // =============================
+// MONGOOSE JSON TRANSFORM
+// =============================
+mongoose.set('toJSON', {
+  transform: (doc, ret) => {
+    // Convert _id to string
+    ret._id = ret._id.toString();
+
+    // Convert rating if it's extended JSON
+    if (ret.rating && ret.rating.$numberInt) {
+      ret.rating = parseInt(ret.rating.$numberInt, 10);
+    }
+
+    // Convert createdAt if it's extended JSON
+    if (ret.createdAt && ret.createdAt.$date && ret.createdAt.$date.$numberLong) {
+      ret.createdAt = new Date(parseInt(ret.createdAt.$date.$numberLong, 10)).toISOString();
+    } else if (ret.createdAt) {
+      ret.createdAt = ret.createdAt.toISOString();
+    }
+
+    return ret;
+  },
+});
+
+// =============================
 // FILE UPLOAD
 // =============================
 const documentStorage = multer.diskStorage({
@@ -134,7 +130,7 @@ const documentStorage = multer.diskStorage({
   },
 });
 const upload = multer({ storage: documentStorage });
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(path.join(__dirname, 'Uploads')));
 
 // =============================
 // ROUTES
@@ -164,7 +160,7 @@ app.get('/seed', async (req, res) => {
 
 app.get('/api/products', async (req, res) => {
   try {
-    const all = await Property.find().lean();
+    const all = await Property.find();
     if (all.length === 0) {
       return res.json({ data: [], message: 'No properties yet - run /seed' });
     }
@@ -224,7 +220,7 @@ app.put('/api/users', async (req, res) => {
   }
 });
 
-// REVIEW ENDPOINTS - NOW AUTO-CLEANED
+// REVIEW ENDPOINTS - SIMPLIFIED
 app.post('/api/reviews', async (req, res) => {
   try {
     const { brokerName, rating, feedback } = req.body;
