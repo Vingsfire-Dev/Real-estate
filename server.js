@@ -8,9 +8,8 @@ const bcrypt = require('bcrypt');
 const multer = require('multer');
 
 const app = express();
-
 app.use(cors());
-app.use(express.json());                 // <-- ONE JSON parser (handles application/json)
+app.use(express.json());
 
 /* ------------------------------------------------------------------ */
 /* --------------------------- CONFIG ------------------------------- */
@@ -93,6 +92,7 @@ const profileViewSchema = new mongoose.Schema({
 const ProfileView = mongoose.model('ProfileView', profileViewSchema);
 
 /* ----------------------- GLOBAL JSON TRANSFORM -------------------- */
+// Optional: keep for consistency, but we use .lean() in public APIs
 mongoose.set('toJSON', {
   transform: (doc, ret) => {
     ret._id = ret._id.toString();
@@ -100,12 +100,9 @@ mongoose.set('toJSON', {
       ret.rating = parseInt(ret.rating.$numberInt, 10);
     }
     if (ret.createdAt) {
-      if (ret.createdAt.$date && ret.createdAt.$date.$numberLong) {
-        ret.createdAt = new Date(parseInt(ret.createdAt.$date.$numberLong, 10)).toISOString();
-      } else {
-        ret.createdAt = ret.createdAt.toISOString();
-      }
+      ret.createdAt = new Date(ret.createdAt).toISOString();
     }
+    delete ret.__v;
     return ret;
   },
 });
@@ -149,17 +146,9 @@ app.get('/seed', async (req, res) => {
 
 app.get('/api/products', async (req, res) => {
   try {
-    const all = await Property.find();
+    const all = await Property.find().lean();
     if (!all.length) return res.json({ data: [], message: 'Run /seed' });
-    const out = all.map(p => ({
-      Name: p.Name,
-      PropertyTitle: p.PropertyTitle,
-      Price: p.Price,
-      Location: p.Location,
-      TotalArea: p.TotalArea,
-      Baths: p.Baths,
-    }));
-    res.json({ data: out });
+    res.json({ data: all });
   } catch (e) {
     res.status(500).json({ message: 'Server error', details: e.message });
   }
@@ -212,21 +201,18 @@ app.put('/api/users', async (req, res) => {
 /* -------------------------- REVIEW ENDPOINTS ---------------------- */
 app.post('/api/reviews', async (req, res) => {
   try {
-    console.log('RAW BODY RECEIVED:', req.body);               // <-- DEBUG
-
+    console.log('RAW BODY RECEIVED:', req.body);
     const { brokerName, rating, feedback } = req.body;
-
     if (!brokerName || rating === undefined) {
       return res.status(400).json({
         message: 'Missing required fields',
         received: req.body,
       });
     }
-
     const review = new Review({ brokerName, rating, feedback });
     await review.save();
     console.log('NEW REVIEW saved:', review.toObject());
-    res.json({ message: 'Review submitted', review });
+    res.json({ message: 'Review submitted', review: review.toObject() });
   } catch (e) {
     console.error('POST /api/reviews error:', e);
     res.status(500).json({ message: 'Server error', details: e.message });
@@ -236,9 +222,20 @@ app.post('/api/reviews', async (req, res) => {
 app.get('/api/reviews/:brokerName', async (req, res) => {
   try {
     const { brokerName } = req.params;
-    const reviews = await Review.find({ brokerName }).sort({ createdAt: -1 });
+    const reviews = await Review.find({ brokerName })
+      .lean()
+      .sort({ createdAt: -1 });
+
+    const cleaned = reviews.map(r => ({
+      _id: r._id.toString(),
+      brokerName: r.brokerName,
+      rating: Number(r.rating),
+      feedback: r.feedback,
+      createdAt: new Date(r.createdAt).toISOString(),
+    }));
+
     console.log(`GET /api/reviews/${brokerName} → ${reviews.length} reviews`);
-    res.json({ data: reviews });
+    res.json({ data: cleaned });
   } catch (e) {
     console.error('GET /api/reviews/:brokerName error:', e);
     res.status(500).json({ message: 'Server error', details: e.message });
@@ -247,29 +244,42 @@ app.get('/api/reviews/:brokerName', async (req, res) => {
 
 app.get('/api/reviews/all', async (req, res) => {
   try {
-    const reviews = await Review.find({}).sort({ createdAt: -1 });
+    const reviews = await Review.find({})
+      .lean()
+      .sort({ createdAt: -1 });
+
+    const cleaned = reviews.map(r => ({
+      _id: r._id.toString(),
+      brokerName: r.brokerName,
+      rating: Number(r.rating),
+      feedback: r.feedback,
+      createdAt: new Date(r.createdAt).toISOString(),
+    }));
+
     console.log(`GET /api/reviews/all → ${reviews.length} reviews`);
-    res.json({ data: reviews });
+    res.json({ data: cleaned });
   } catch (e) {
     console.error('GET /api/reviews/all error:', e);
     res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
 
-/* ----------------------------- DEBUG ------------------------------ */
-app.get('/debug/reviews', async (req, res) => {
-  try {
-    const raw = await Review.find({}).lean();
-    const mongooseDocs = await Review.find({});
-    res.json({
-      rawMongoDocs: raw,
-      mongooseTransformed: mongooseDocs,
-      note: 'mongooseTransformed should be clean.',
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
+/* ----------------------------- DEBUG (DEV ONLY) ------------------- */
+if (process.env.NODE_ENV !== 'production') {
+  app.get('/debug/reviews', async (req, res) => {
+    try {
+      const raw = await Review.find({}).lean();
+      const mongooseDocs = await Review.find({});
+      res.json({
+        rawMongoDocs: raw,
+        mongooseTransformed: mongooseDocs.map(d => d.toJSON()),
+        note: 'mongooseTransformed should be clean.',
+      });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+}
 
 app.get('/test-db', async (req, res) => {
   try {
@@ -320,7 +330,7 @@ app.post('/api/broker/log-view', async (req, res) => {
     if (!broker) return res.status(404).json({ message: 'Broker not found' });
     const view = new ProfileView({ viewedBrokerName, viewerInfo, viewerPhone: viewerPhone || '' });
     await view.save();
-    res.status(201).json({ message: 'View logged', view });
+    res.status(201).json({ message: 'View logged', view: view.toObject() });
   } catch (e) {
     console.error('log-view error:', e);
     res.status(500).json({ message: 'Server error', details: e.message });
@@ -330,8 +340,10 @@ app.post('/api/broker/log-view', async (req, res) => {
 app.get('/api/broker/views/:fullName', async (req, res) => {
   try {
     const { fullName } = req.params;
-    const views = await ProfileView.find({ viewedBrokerName: fullName }).sort({ timestamp: -1 });
-    res.json({ data: views, count: views.length });
+    const views = await ProfileView.find({ viewedBrokerName: fullName })
+      .lean()
+      .sort({ timestamp: -1 });
+    res.json({ data: views.map(v => ({ ...v, _id: v._id.toString(), timestamp: new Date(v.timestamp).toISOString() })), count: views.length });
   } catch (e) {
     res.status(500).json({ message: 'Server error', details: e.message });
   }
@@ -340,7 +352,7 @@ app.get('/api/broker/views/:fullName', async (req, res) => {
 app.get('/api/broker/status/:email', async (req, res) => {
   try {
     const { email } = req.params;
-    const broker = await Broker.findOne({ email }).select('verificationStatus isSubscribed subscriptionEndDate -_id');
+    const broker = await Broker.findOne({ email }).select('verificationStatus isSubscribed subscriptionEndDate -_id').lean();
     if (!broker) return res.status(404).json({ message: 'Broker not found' });
     res.json(broker);
   } catch (e) {
@@ -380,6 +392,7 @@ app.post('/api/broker/subscribe', async (req, res) => {
     res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
+
 app.get('/debug/dbinfo', async (req, res) => {
   const collections = await mongoose.connection.db.listCollections().toArray();
   res.json({
@@ -388,7 +401,6 @@ app.get('/debug/dbinfo', async (req, res) => {
     collections: collections.map(c => c.name),
   });
 });
-
 
 /* -------------------------- START SERVER -------------------------- */
 app.listen(PORT, '0.0.0.0', err => {
