@@ -24,7 +24,7 @@ mongoose
   });
 
 // =============================
-// 1. MODELS
+// MODELS
 // =============================
 const propertySchema = new mongoose.Schema({
   Name: String,
@@ -92,14 +92,12 @@ const profileViewSchema = new mongoose.Schema({
 const ProfileView = mongoose.model('ProfileView', profileViewSchema);
 
 // =============================
-// 2. FILE UPLOAD (Multer)
+// FILE UPLOAD
 // =============================
 const documentStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const dir = 'uploads/documents';
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
   filename: (req, file, cb) => {
@@ -111,7 +109,7 @@ const upload = multer({ storage: documentStorage });
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // =============================
-// 3. HELPER
+// CLEAN REVIEW HELPER
 // =============================
 function cleanReview(review) {
   return {
@@ -124,21 +122,19 @@ function cleanReview(review) {
     feedback: review.feedback || '',
     createdAt:
       review.createdAt?.$date?.$numberLong != null
-        ? new Date(
-            parseInt(review.createdAt.$date.$numberLong, 10)
-          ).toISOString()
+        ? new Date(parseInt(review.createdAt.$date.$numberLong, 10)).toISOString()
         : review.createdAt.toISOString(),
   };
 }
 
 // =============================
-// 4. ROUTES
+// ROUTES
 // =============================
 app.get('/seed', async (req, res) => {
   try {
     const filePath = path.join(__dirname, 'data', 'real_estate_data.json');
     if (!fs.existsSync(filePath)) {
-      return res.status(404).send('Error: real_estate_data.json not found on server');
+      return res.status(404).send('Error: real_estate_data.json not found');
     }
     const raw = fs.readFileSync(filePath, 'utf-8');
     const data = JSON.parse(raw);
@@ -151,9 +147,8 @@ app.get('/seed', async (req, res) => {
       Baths: p.Baths,
     }));
     await Property.insertMany(docs, { ordered: false });
-    res.send(`Data added! Loaded ${docs.length} properties.`);
+    res.send(`Loaded ${docs.length} properties.`);
   } catch (err) {
-    console.error('Seed error:', err);
     res.status(500).send('Seed Error: ' + err.message);
   }
 });
@@ -180,22 +175,11 @@ app.get('/api/products', async (req, res) => {
 
 app.post('/api/signup', async (req, res) => {
   try {
-    const { email, password, firstName, lastName, phone, address, city, state, zip } =
-      req.body;
+    const { email, password, firstName, lastName, phone, address, city, state, zip } = req.body;
     const existingUser = await User.findOne({ email });
     if (existingUser) return res.status(400).json({ message: 'User already exists' });
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new User({
-      email,
-      password: hashedPassword,
-      firstName,
-      lastName,
-      phone,
-      address,
-      city,
-      state,
-      zip,
-    });
+    const user = new User({ email, password: hashedPassword, firstName, lastName, phone, address, city, state, zip });
     await user.save();
     res.json({ message: 'User created', user: { ...user.toObject(), password: undefined } });
   } catch (err) {
@@ -231,7 +215,7 @@ app.put('/api/users', async (req, res) => {
   }
 });
 
-// ---------- REVIEW ENDPOINTS (cleaned) ----------
+// REVIEW ENDPOINTS - CLEANED
 app.post('/api/reviews', async (req, res) => {
   try {
     const { brokerName, rating, feedback } = req.body;
@@ -246,26 +230,20 @@ app.post('/api/reviews', async (req, res) => {
 app.get('/api/reviews/:brokerName', async (req, res) => {
   try {
     const { brokerName } = req.params;
-    const reviews = await Review.find({ brokerName })
-      .sort({ createdAt: -1 })
-      .lean();
+    const reviews = await Review.find({ brokerName }).sort({ createdAt: -1 }).lean();
     const cleaned = reviews.map(cleanReview);
     res.json({ data: cleaned });
   } catch (err) {
-    console.error('Get broker reviews error:', err);
     res.status(500).json({ message: 'Server error', details: err.message });
   }
 });
 
 app.get('/api/reviews/all', async (req, res) => {
   try {
-    const reviews = await Review.find({})
-      .sort({ createdAt: -1 })
-      .lean();
+    const reviews = await Review.find({}).sort({ createdAt: -1 }).lean();
     const cleaned = reviews.map(cleanReview);
     res.json({ data: cleaned });
   } catch (err) {
-    console.error('Get all reviews error:', err);
     res.status(500).json({ message: 'Server error', details: err.message });
   }
 });
@@ -279,33 +257,18 @@ app.get('/test-db', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => {
-  res.send('Real Estate API is running!');
-});
+app.get('/', (req, res) => res.send('Real Estate API is running!'));
 
-// =============================
-// 5. BROKER ENDPOINTS
-// =============================
+// BROKER ENDPOINTS
 app.post('/api/broker/register', async (req, res) => {
   try {
-    const { email, password, fullName, phone, license, agency, profileImageUrl } =
-      req.body;
+    const { email, password, fullName, phone, license, agency, profileImageUrl } = req.body;
     const existing = await Broker.findOne({ $or: [{ email }, { fullName }] });
     if (existing) return res.status(400).json({ message: 'Email or Full Name already exists' });
     const hashedPassword = await bcrypt.hash(password, 10);
-    const broker = new Broker({
-      email,
-      password: hashedPassword,
-      fullName,
-      phone,
-      license,
-      agency,
-      profileImageUrl: profileImageUrl || '',
-    });
+    const broker = new Broker({ email, password: hashedPassword, fullName, phone, license, agency, profileImageUrl: profileImageUrl || '' });
     await broker.save();
-    res
-      .status(201)
-      .json({ message: 'Broker registered', broker: { ...broker.toObject(), password: undefined } });
+    res.status(201).json({ message: 'Broker registered', broker: { ...broker.toObject(), password: undefined } });
   } catch (err) {
     res.status(500).json({ message: 'Server error', details: err.message });
   }
@@ -327,22 +290,13 @@ app.post('/api/broker/login', async (req, res) => {
 app.post('/api/broker/log-view', async (req, res) => {
   try {
     const { viewedBrokerName, viewerInfo, viewerPhone } = req.body;
-    if (!viewedBrokerName || !viewerInfo) {
-      return res.status(400).json({ message: 'Missing required fields' });
-    }
+    if (!viewedBrokerName || !viewerInfo) return res.status(400).json({ message: 'Missing required fields' });
     const brokerExists = await Broker.findOne({ fullName: viewedBrokerName });
-    if (!brokerExists) {
-      return res.status(404).json({ message: 'Broker not found' });
-    }
-    const view = new ProfileView({
-      viewedBrokerName,
-      viewerInfo,
-      viewerPhone: viewerPhone || '',
-    });
+    if (!brokerExists) return res.status(404).json({ message: 'Broker not found' });
+    const view = new ProfileView({ viewedBrokerName, viewerInfo, viewerPhone: viewerPhone || '' });
     await view.save();
     res.status(201).json({ message: 'View logged', view });
   } catch (err) {
-    console.error('Log view error:', err);
     res.status(500).json({ message: 'Server error', details: err.message });
   }
 });
@@ -350,9 +304,7 @@ app.post('/api/broker/log-view', async (req, res) => {
 app.get('/api/broker/views/:fullName', async (req, res) => {
   try {
     const { fullName } = req.params;
-    const views = await ProfileView.find({ viewedBrokerName: fullName })
-      .sort({ timestamp: -1 })
-      .lean();
+    const views = await ProfileView.find({ viewedBrokerName: fullName }).sort({ timestamp: -1 }).lean();
     res.json({ data: views, count: views.length });
   } catch (err) {
     res.status(500).json({ message: 'Server error', details: err.message });
@@ -362,9 +314,7 @@ app.get('/api/broker/views/:fullName', async (req, res) => {
 app.get('/api/broker/status/:email', async (req, res) => {
   try {
     const { email } = req.params;
-    const broker = await Broker.findOne({ email }).select(
-      'verificationStatus isSubscribed subscriptionEndDate -_id'
-    );
+    const broker = await Broker.findOne({ email }).select('verificationStatus isSubscribed subscriptionEndDate -_id');
     if (!broker) return res.status(404).json({ message: 'Broker not found' });
     res.json(broker);
   } catch (err) {
@@ -375,9 +325,7 @@ app.get('/api/broker/status/:email', async (req, res) => {
 app.post('/api/broker/documents', upload.array('documents'), async (req, res) => {
   try {
     const { email } = req.body;
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ message: 'No files uploaded' });
-    }
+    if (!req.files || req.files.length === 0) return res.status(400).json({ message: 'No files uploaded' });
     const documents = req.files.map((file) => ({
       brokerEmail: email,
       fileName: file.originalname,
@@ -385,9 +333,7 @@ app.post('/api/broker/documents', upload.array('documents'), async (req, res) =>
     }));
     await Document.insertMany(documents);
     await Broker.findOneAndUpdate({ email }, { verificationStatus: 'pending' });
-    res
-      .status(201)
-      .json({ message: 'Documents uploaded. Verification pending.', files: documents });
+    res.status(201).json({ message: 'Documents uploaded. Verification pending.', files: documents });
   } catch (err) {
     res.status(500).json({ message: 'Server error', details: err.message });
   }
@@ -395,7 +341,7 @@ app.post('/api/broker/documents', upload.array('documents'), async (req, res) =>
 
 app.post('/api/broker/subscribe', async (req, res) => {
   try {
-    const { email, plan } = req.body;
+    const { email } = req.body;
     const endDate = new Date();
     endDate.setFullYear(endDate.getFullYear() + 1);
     const broker = await Broker.findOneAndUpdate(
@@ -410,6 +356,11 @@ app.post('/api/broker/subscribe', async (req, res) => {
   }
 });
 
+// START SERVER
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Go to http://localhost:${PORT}/seed to seed data`);
+});
 // =============================
 // 6. START SERVER
 // =============================
