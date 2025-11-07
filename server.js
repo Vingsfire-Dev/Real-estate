@@ -90,6 +90,7 @@ const profileViewSchema = new mongoose.Schema({
   viewedBrokerName: { type: String, required: true, index: true },
   viewerPhone: { type: String },
   viewerInfo: { type: String, required: true },
+  estimatedBudget:  { type: Number },
   timestamp: { type: Date, default: Date.now },
 });
 const ProfileView = mongoose.model('ProfileView', profileViewSchema);
@@ -271,12 +272,22 @@ app.post('/api/broker/login', async (req, res) => {
 
 app.post('/api/broker/log-view', async (req, res) => {
   try {
-    const { viewedBrokerName, viewerInfo, viewerPhone } = req.body;
-    if (!viewedBrokerName || !viewerInfo) return res.status(400).json({ message: 'Missing fields' });
+    const { viewedBrokerName, viewerInfo, viewerPhone, estimatedBudget } = req.body;
+    if (!viewedBrokerName || !viewerInfo) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+
     const broker = await Broker.findOne({ fullName: viewedBrokerName });
     if (!broker) return res.status(404).json({ message: 'Broker not found' });
-    const view = new ProfileView({ viewedBrokerName, viewerInfo, viewerPhone: viewerPhone || '' });
+
+    const view = new ProfileView({
+      viewedBrokerName,
+      viewerInfo,
+      viewerPhone: viewerPhone || '',
+      estimatedBudget: estimatedBudget ? Number(estimatedBudget) : undefined,
+    });
     await view.save();
+
     res.status(201).json({ message: 'View logged', view: view.toObject() });
   } catch (e) {
     console.error('log-view error:', e);
