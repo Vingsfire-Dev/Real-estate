@@ -280,7 +280,7 @@ app.post('/api/broker/login', async (req, res) => {
 
 app.post('/api/broker/log-view', async (req, res) => {
   try {
-    const { viewedBrokerName, viewerInfo, viewerPhone, estimatedBudget } = req.body;
+    const { viewedBrokerName, viewerInfo, viewerPhone, estimatedBudget, propertySummary} = req.body;
     if (!viewedBrokerName || !viewerInfo) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
@@ -293,6 +293,7 @@ app.post('/api/broker/log-view', async (req, res) => {
       viewerInfo,
       viewerPhone: viewerPhone || '',
       estimatedBudget: estimatedBudget ? Number(estimatedBudget) : undefined,
+      propertySummary,
     });
     await view.save();
 
