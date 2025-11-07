@@ -91,6 +91,14 @@ const profileViewSchema = new mongoose.Schema({
   viewerPhone: { type: String },
   viewerInfo: { type: String, required: true },
   estimatedBudget:  { type: Number },
+  propertySummary: {
+    name: String,
+    type: String,
+    area: Number,
+    baths: Number,
+    price: String,
+    location: String,
+  },
   timestamp: { type: Date, default: Date.now },
 });
 const ProfileView = mongoose.model('ProfileView', profileViewSchema);
