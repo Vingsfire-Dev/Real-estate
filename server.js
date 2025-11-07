@@ -92,12 +92,12 @@ const profileViewSchema = new mongoose.Schema({
   viewerInfo: { type: String, required: true },
   estimatedBudget:  { type: Number },
   propertySummary: {
-    name: String,
-    type: String,
-    area: Number,
-    baths: Number,
-    price: String,
-    location: String,
+    name: { type: String },
+    type: { type: String },
+    area: { type: Number },
+    baths: { type: Number },
+    price: { type: String },
+    location: { type: String },
   },
   timestamp: { type: Date, default: Date.now },
 });
