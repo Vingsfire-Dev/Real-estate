@@ -96,7 +96,6 @@ const profileViewSchema = new mongoose.Schema({
     type: { type: String },
     area: { type: Number },
     baths: { type: Number },
-    price: { type: String },
     location: { type: String },
   },
   timestamp: { type: Date, default: Date.now },
