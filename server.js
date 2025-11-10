@@ -102,6 +102,17 @@ const profileViewSchema = new mongoose.Schema({
   timestamp: { type: Date, default: Date.now },
 });
 const ProfileView = mongoose.model('ProfileView', profileViewSchema);
+/* --------------------- NOTIFICATION SCHEMA --------------------- */
+const notificationSchema = new mongoose.Schema({
+  recipient: { type: String, required: true },  // e.g., "All Brokers", "All Premium Brokers", or broker email
+  type: { type: String, enum: ['Manual', 'Automated'], required: true },
+  channel: { type: String, enum: ['System', 'Email'], required: true },
+  message: { type: String, required: true },
+  dateTime: { type: Date, required: true },
+  read: { type: Boolean, default: false },
+  brokerEmail: { type: String, index: true }  // For personal; null for broadcasts
+});
+const Notification = mongoose.model('Notification', notificationSchema);
 
 
 /* ----------------------- GLOBAL JSON TRANSFORM -------------------- */
@@ -129,7 +140,23 @@ const documentStorage = multer.diskStorage({
 });
 const upload = multer({ storage: documentStorage });
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+/* --------------------- SOCKET.IO SETUP --------------------- */
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] }
+});
+const onlineBrokers = new Map();  // email -> socket.id
 
+io.on('connection', (socket) => {
+  console.log('Socket connected:', socket.id);
+  const email = socket.handshake.query.email;
+  if (email) onlineBrokers.set(email, socket.id);
+
+  socket.on('disconnect', () => {
+    onlineBrokers.delete(email);
+    console.log('Socket disconnected:', socket.id);
+  });
+});
 /* ------------------------------ ROUTES --------------------------- */
 app.get('/seed', async (req, res) => {
   try {
@@ -265,6 +292,7 @@ app.post('/api/broker/register', async (req, res) => {
   }
 });
 
+
 app.post('/api/broker/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -369,6 +397,87 @@ app.post('/api/broker/subscribe', async (req, res) => {
     res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
+/* --------------------- NOTIFICATION ENDPOINTS --------------------- */
+// CREATE (for admin/manual; add auth later if needed)
+app.post('/api/notifications', async (req, res) => {
+  try {
+    const { recipient, type, channel, message, dateTime } = req.body;
+    if (!recipient || !type || !channel || !message || !dateTime) {
+      return res.status(400).json({ message: 'Missing fields' });
+    }
+    const parsedDate = new Date(dateTime);  // Parse string to Date
+    if (isNaN(parsedDate)) return res.status(400).json({ message: 'Invalid dateTime' });
+
+    const notif = new Notification({
+      recipient,
+      type,
+      channel,
+      message,
+      dateTime: parsedDate,
+      brokerEmail: recipient.includes('@') ? recipient : null  // Personal if email
+    });
+    await notif.save();
+
+    // Real-time emit
+    const notifObj = notif.toObject();
+    notifObj._id = notifObj._id.toString();
+    notifObj.dateTime = notifObj.dateTime.toISOString();
+
+    if (recipient === 'All Brokers' || recipient === 'All Premium Brokers') {
+      // Broadcast to all online (or filter premium if needed)
+      const brokers = recipient === 'All Premium Brokers' 
+        ? await Broker.find({ isSubscribed: true }).select('email')
+        : await Broker.find().select('email');
+      brokers.forEach(b => {
+        const sid = onlineBrokers.get(b.email);
+        if (sid) io.to(sid).emit('new_notification', notifObj);
+      });
+    } else if (recipient.includes('@')) {
+      const sid = onlineBrokers.get(recipient);
+      if (sid) io.to(sid).emit('new_notification', notifObj);
+    }
+
+    res.status(201).json({ message: 'Notification created', data: notifObj });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
+  }
+});
+
+// GET for a broker (personal + broadcasts)
+app.get('/api/notifications/:email', async (req, res) => {
+  try {
+    const { email } = req.params;
+    const notifications = await Notification.find({
+      $or: [
+        { brokerEmail: email },
+        { recipient: { $in: ['All Brokers', 'All Premium Brokers'] } }  // Show all broadcasts; filter premium client-side if needed
+      ]
+    }).sort({ dateTime: -1 }).lean();
+
+    const cleaned = notifications.map(n => ({
+      ...n,
+      _id: n._id.toString(),
+      dateTime: n.dateTime.toISOString()
+    }));
+
+    res.json({ data: cleaned });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
+  }
+});
+
+// MARK AS READ
+app.patch('/api/notifications/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const notif = await Notification.findByIdAndUpdate(id, { read: true }, { new: true }).lean();
+    if (!notif) return res.status(404).json({ message: 'Not found' });
+    const cleaned = { ...notif, _id: notif._id.toString(), dateTime: notif.dateTime.toISOString() };
+    res.json({ message: 'Marked as read', data: cleaned });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
+  }
+});
 
 /* -------------------------- TEST ENDPOINT -------------------------- */
 app.get('/test-db', async (req, res) => {
@@ -383,7 +492,7 @@ app.get('/test-db', async (req, res) => {
 app.get('/', (req, res) => res.send('Real Estate API running'));
 
 /* -------------------------- START SERVER -------------------------- */
-app.listen(PORT, '0.0.0.0', err => {
+server.listen(PORT, '0.0.0.0', err => {
   if (err) {
     console.error('Failed to start server:', err);
     process.exit(1);
