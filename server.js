@@ -10,7 +10,8 @@ const multer = require('multer');
 const app = express();
 app.use(cors());
 app.use(express.json());
-
+const http = require('http');
+const { Server } = require('socket.io');
 /* ------------------------------------------------------------------ */
 /* --------------------------- CONFIG ------------------------------- */
 const PORT = process.env.PORT || 8000;
