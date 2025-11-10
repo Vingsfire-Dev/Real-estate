@@ -101,6 +101,125 @@ const profileViewSchema = new mongoose.Schema({
   timestamp: { type: Date, default: Date.now },
 });
 const ProfileView = mongoose.model('ProfileView', profileViewSchema);
+/* --------------------- NOTIFICATION SCHEMA --------------------- */
+const notificationSchema = new mongoose.Schema({
+  recipient: { type: String, required: true },          // "All Brokers", "All Premium Brokers", or broker email
+  type: { type: String, enum: ['Manual', 'Automated'], required: true },
+  channel: { type: String, enum: ['System', 'Email'], required: true },
+  message: { type: String, required: true },
+  dateTime: { type: Date, required: true },
+  read: { type: Boolean, default: false },
+  brokerEmail: { type: String, index: true }            // null for broadcast, else specific broker
+});
+const Notification = mongoose.model('Notification', notificationSchema);
+
+/* --------------------- SOCKET.IO SETUP --------------------- */
+const http = require('http');
+const server = http.createServer(app);
+const { Server } = require('socket.io');
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] }
+});
+
+// Map email → socket.id for direct messaging
+const onlineBrokers = new Map();
+
+io.on('connection', (socket) => {
+  console.log('Socket connected:', socket.id);
+  const email = socket.handshake.query.email;
+  if (email) onlineBrokers.set(email, socket.id);
+
+  socket.on('disconnect', () => {
+    onlineBrokers.delete(email);
+    console.log('Socket disconnected:', socket.id);
+  });
+});
+
+/* --------------------- NOTIFICATION ENDPOINTS --------------------- */
+
+// CREATE (admin only – you can add auth later)
+app.post('/api/notifications', async (req, res) => {
+  try {
+    const { recipient, type, channel, message, dateTime = new Date() } = req.body;
+    const notif = new Notification({
+      recipient, type, channel, message,
+      dateTime: new Date(dateTime),
+      brokerEmail: (recipient.includes('@') ? recipient : null)
+    });
+    await notif.save();
+
+    // Emit to online brokers
+    if (recipient === 'All Brokers' || recipient === 'All Premium Brokers') {
+      io.emit('notification', notif.toObject());
+    } else if (recipient.includes('@')) {
+      const sid = onlineBrokers.get(recipient);
+      if (sid) io.to(sid).emit('notification', notif.toObject());
+    }
+
+    res.status(201).json({ message: 'Notification created', data: notif });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
+  }
+});
+
+// FETCH for a broker
+app.get('/api/notifications/:email', async (req, res) => {
+  try {
+    const { email } = req.params;
+    const { page = 1, limit = 20 } = req.query;
+    const skip = (page - 1) * limit;
+
+    const [list, total] = await Promise.all([
+      Notification.find({
+        $or: [
+          { brokerEmail: email },
+          { recipient: { $in: ['All Brokers', 'All Premium Brokers'] } }
+        ]
+      })
+        .sort({ dateTime: -1 })
+        .skip(skip)
+        .limit(+limit)
+        .lean(),
+      Notification.countDocuments({
+        $or: [
+          { brokerEmail: email },
+          { recipient: { $in: ['All Brokers', 'All Premium Brokers'] } }
+        ]
+      })
+    ]);
+
+    const cleaned = list.map(n => ({
+      ...n,
+      _id: n._id.toString(),
+      dateTime: new Date(n.dateTime).toISOString(),
+    }));
+
+    res.json({ data: cleaned, total, page: +page, pages: Math.ceil(total / limit) });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
+  }
+});
+
+// MARK AS READ
+app.patch('/api/notifications/:id/read', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const notif = await Notification.findByIdAndUpdate(
+      id,
+      { read: true },
+      { new: true }
+    ).lean();
+    if (!notif) return res.status(404).json({ message: 'Not found' });
+
+    // Push update via socket if user is online
+    const sid = onlineBrokers.get(notif.brokerEmail || '');
+    if (sid) io.to(sid).emit('notification-read', { _id: notif._id.toString() });
+
+    res.json({ message: 'Marked read', data: notif });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', details: e.message });
+  }
+});
 
 /* ----------------------- GLOBAL JSON TRANSFORM -------------------- */
 mongoose.set('toJSON', {
@@ -381,7 +500,7 @@ app.get('/test-db', async (req, res) => {
 app.get('/', (req, res) => res.send('Real Estate API running'));
 
 /* -------------------------- START SERVER -------------------------- */
-app.listen(PORT, '0.0.0.0', err => {
+server.listen(PORT, '0.0.0.0', err => {
   if (err) {
     console.error('Failed to start server:', err);
     process.exit(1);
