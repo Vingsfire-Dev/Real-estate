@@ -143,7 +143,62 @@ app.get('/api/notifications/:brokerEmail', async (req, res) => {
     res.status(500).json({ message: 'Server error', details: e.message });
   }
 });
+/* --------------------- SEND NOTIFICATION (ADMIN) --------------------- */
+app.post('/api/notifications', async (req, res) => {
+  try {
+    const { recipient, type, message, channel } = req.body;
 
+    if (!recipient || !type || !message || !channel) {
+      return res.status(400).json({ message: 'Missing fields' });
+    }
+
+    // Case 1: Send to specific broker emails
+    if (Array.isArray(recipient)) {
+      const notifications = recipient.map(email => ({
+        brokerEmail: email,
+        recipient: 'Individual',
+        type,
+        message,
+        channel,
+      }));
+      await Notification.insertMany(notifications);
+      return res.json({ message: `Sent to ${recipient.length} brokers` });
+    }
+
+    // Case 2: Send to group
+    let brokerEmails = [];
+    if (recipient === 'All Brokers') {
+      const brokers = await Broker.find().select('email');
+      brokerEmails = brokers.map(b => b.email);
+    } else if (recipient === 'All Premium Brokers') {
+      const brokers = await Broker.find({ isSubscribed: true }).select('email');
+      brokerEmails = brokers.map(b => b.email);
+    } else if (recipient === 'All Standard Brokers') {
+      const brokers = await Broker.find({ isSubscribed: false }).select('email');
+      brokerEmails = brokers.map(b => b.email);
+    } else {
+      return res.status(400).json({ message: 'Invalid recipient group' });
+    }
+
+    if (brokerEmails.length === 0) {
+      return res.status(400).json({ message: 'No brokers in this group' });
+    }
+
+    const notifications = brokerEmails.map(email => ({
+      brokerEmail: email,
+      recipient,
+      type,
+      message,
+      channel,
+    }));
+
+    await Notification.insertMany(notifications);
+    res.json({ message: `Sent to ${brokerEmails.length} brokers`, count: brokerEmails.length });
+  } catch (e) {
+    console.error('POST /api/notifications error:', e);
+    res.status(500).json({ message: 'Server error', details: e.message });
+  }
+});
 
 
 
