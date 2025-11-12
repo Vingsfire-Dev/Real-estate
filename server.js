@@ -102,6 +102,48 @@ const profileViewSchema = new mongoose.Schema({
 });
 const ProfileView = mongoose.model('ProfileView', profileViewSchema);
 
+/* --------------------- NOTIFICATION SCHEMA --------------------- */
+const notificationSchema = new mongoose.Schema({
+  brokerEmail: { type: String, required: true, index: true },   // who receives it
+  recipient:   { type: String, required: true },               // "All Brokers", "John Doe", …
+  type:        { type: String, required: true },               // Manual / Auto
+  channel:     { type: String, required: true },               // Email / Push / In-App
+  message:     { type: String, required: true },
+  dateTime:    { type: Date,   default: Date.now },
+  read:        { type: Boolean, default: false },              // for UI badge
+});
+const Notification = mongoose.model('Notification', notificationSchema);
+
+/* --------------------- GET NOTIFICATIONS FOR BROKER --------------------- */
+app.get('/api/notifications/:brokerEmail', async (req, res) => {
+  try {
+    const { brokerEmail } = req.params;
+    const { read } = req.query;                 // optional filter ?read=false
+
+    const filter = { brokerEmail };
+    if (read !== undefined) filter.read = read === 'true';
+
+    const notifications = await Notification.find(filter)
+      .sort({ dateTime: -1 })
+      .lean();
+
+    const cleaned = notifications.map(n => ({
+      _id: n._id.toString(),
+      recipient: n.recipient,
+      type: n.type,
+      channel: n.channel,
+      message: n.message,
+      dateTime: new Date(n.dateTime).toISOString(),
+      read: n.read,
+    }));
+
+    res.json({ data: cleaned });
+  } catch (e) {
+    console.error('GET /api/notifications error:', e);
+    res.status(500).json({ message: 'Server error', details: e.message });
+  }
+});
+
 
 
 
